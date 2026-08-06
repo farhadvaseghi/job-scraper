@@ -20,7 +20,13 @@ import re
 import time
 
 import config
-from scrapers.common import get_logger, make_job, passes_permanent_filter, passes_seniority_filter
+from scrapers.common import (
+    get_logger,
+    make_job,
+    passes_company_filter,
+    passes_permanent_filter,
+    passes_seniority_filter,
+)
 
 log = get_logger("xing")
 
@@ -142,6 +148,8 @@ def scrape():
                         continue
                     check_text = f"{title} {item.get('company', '')} {item.get('context_text', '')}"
                     if not passes_permanent_filter(check_text):
+                        continue
+                    if not passes_company_filter(item.get("company", "")):
                         continue
 
                     age_days = item.get("age_days")
