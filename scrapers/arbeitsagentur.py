@@ -14,7 +14,7 @@ import time
 import requests
 
 import config
-from scrapers.common import get_logger, make_job, passes_seniority_filter
+from scrapers.common import get_logger, make_job, passes_permanent_filter, passes_seniority_filter
 
 log = get_logger("arbeitsagentur")
 
@@ -34,6 +34,8 @@ def _search_one(keyword):
         "angebotsart": 1,  # ARBEIT (excludes Ausbildung/Praktikum/Selbstaendigkeit)
         "veroeffentlichtseit": config.MAX_AGE_DAYS,
         "arbeitszeit": "vz",  # Vollzeit (full-time)
+        "befristung": 2,  # 2 = unbefristet (permanent) only, excludes befristet (fixed-term)
+        "zeitarbeit": False,  # excludes postings from temp-staffing agencies
         "size": 100,
         "page": 1,
     }
@@ -68,7 +70,12 @@ def scrape():
             seen_refnr.add(refnr)
 
             title = item.get("beruf", "")
+            employer = item.get("arbeitgeber", "")
             if not passes_seniority_filter(title):
+                continue
+            # belt-and-suspenders on top of the befristung/zeitarbeit API params --
+            # catches agency employer names the API filter itself might miss
+            if not passes_permanent_filter(f"{title} {employer}"):
                 continue
 
             arbeitsort = item.get("arbeitsort") or {}
