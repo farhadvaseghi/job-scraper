@@ -1,10 +1,12 @@
 # Germany Job Scraper -> Telegram
 
 Searches Arbeitsagentur, Indeed, StepStone, and Xing for new job postings
-across Germany (junior/entry-level, full-time) matching a curated set of
-keywords, and posts a digest of anything new (posted within the last 7
-days, not already sent before) to a Telegram channel. Runs automatically
-4x/day via GitHub Actions -- no server of your own required.
+across Germany (junior/entry-level, full-time, permanent only -- fixed-term
+contracts and temp-staffing agency postings are filtered out) matching a
+curated set of keywords, and posts a digest of anything new (posted within
+the last 7 days, not already sent before) to a Telegram channel. Runs when
+you trigger it manually from the Actions tab -- no server of your own
+required.
 
 ## What's included
 
@@ -35,6 +37,7 @@ days, not already sent before) to a Telegram channel. Runs automatically
 - **Keywords / cities**: edit the lists in `config.py`, commit, push.
 - **Schedule**: edit the `cron` lines in `.github/workflows/job_scraper.yml` (times are UTC).
 - **Freshness window**: change `MAX_AGE_DAYS` in `config.py`.
+- **Permanent-only filter**: edit `TEMP_AGENCY_TERMS` in `config.py` to add more staffing-agency names you keep seeing slip through. The fixed-term ("befristet") exclusion is handled separately in `scrapers/common.py` and doesn't need editing.
 - **If Xing or StepStone stop returning results**: check the Actions run log first -- it'll show which source failed and why. These two scrape HTML directly (no official API), so they're the ones most likely to need occasional small fixes if the sites redesign their pages.
 
 ## Costs
