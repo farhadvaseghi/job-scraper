@@ -15,6 +15,14 @@ logging.basicConfig(
 # since both are word characters, so \b correctly refuses to match there.
 _BEFRISTET_RE = re.compile(r"\bbefristet\w*", re.IGNORECASE)
 
+# Word-boundary regex per defense-company term, built once at import time.
+# \b boundaries stop short tokens like "renk" or "kmw" from matching inside
+# an unrelated longer word.
+_DEFENSE_RE = [
+    re.compile(r"\b" + re.escape(term) + r"\b", re.IGNORECASE)
+    for term in config.DEFENSE_COMPANIES
+]
+
 
 def get_logger(name):
     return logging.getLogger(name)
@@ -54,6 +62,18 @@ def passes_permanent_filter(text):
     if _BEFRISTET_RE.search(lowered):
         return False
     return True
+
+
+def passes_company_filter(company_name):
+    """Drop postings from employers in the defense/military industry
+    exclusion list (config.DEFENSE_COMPANIES). Matched against the
+    company/employer name only -- never against title or job description
+    text -- so a civilian-sector posting that merely mentions a defense
+    contractor (e.g. as a client) is never wrongly excluded."""
+    if not company_name:
+        return True
+    lowered = company_name.lower()
+    return not any(rx.search(lowered) for rx in _DEFENSE_RE)
 
 
 def dedupe_key(job):
