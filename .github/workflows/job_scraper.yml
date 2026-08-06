@@ -1,11 +1,11 @@
 name: Germany Job Scraper
 
 on:
-  schedule:
-    # Runs once per day at 06:00 UTC (~07:00 CET / 08:00 CEST Berlin time).
-    # Adjust this however you like -- https://crontab.guru helps.
-    - cron: "0 6 * * *"
-  workflow_dispatch: {}  # lets you trigger a run manually from the Actions tab if you ever want to
+  # Automatic schedule is disabled -- this now only runs when you trigger it
+  # yourself from the Actions tab (Actions -> "Germany Job Scraper" -> Run
+  # workflow). Re-add a `schedule:` block with a cron line here if you ever
+  # want automatic runs back.
+  workflow_dispatch: {}
 
 permissions:
   contents: write  # needed to commit the updated seen_jobs.json back to the repo
