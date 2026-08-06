@@ -14,7 +14,13 @@ import time
 import requests
 
 import config
-from scrapers.common import get_logger, make_job, passes_permanent_filter, passes_seniority_filter
+from scrapers.common import (
+    get_logger,
+    make_job,
+    passes_company_filter,
+    passes_permanent_filter,
+    passes_seniority_filter,
+)
 
 log = get_logger("arbeitsagentur")
 
@@ -76,6 +82,8 @@ def scrape():
             # belt-and-suspenders on top of the befristung/zeitarbeit API params --
             # catches agency employer names the API filter itself might miss
             if not passes_permanent_filter(f"{title} {employer}"):
+                continue
+            if not passes_company_filter(employer):
                 continue
 
             arbeitsort = item.get("arbeitsort") or {}
