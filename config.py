@@ -108,6 +108,45 @@ TEMP_AGENCY_TERMS = [
 ]
 
 # ---------------------------------------------------------------------------
+# Defense/military industry exclusion -- drop postings from employers whose
+# primary business is defense/military equipment (weapons systems, military
+# electronics, armored vehicles, etc.). Matched against the company/employer
+# name field only (not the full job text), so a posting that merely mentions
+# a defense contractor as a client isn't wrongly excluded. Deliberately
+# excludes conglomerates whose main business is civilian (e.g. plain
+# "Airbus" or "Rohde & Schwarz") -- only their defense-specific entities are
+# listed, to avoid dropping legitimate civilian roles there.
+# Add more names here if you notice a defense employer slipping through.
+# ---------------------------------------------------------------------------
+DEFENSE_COMPANIES = [
+    "hensoldt",
+    "rheinmetall",
+    "diehl defence",
+    "diehl defense",
+    "krauss-maffei wegmann",
+    "kmw",
+    "knds",
+    "thyssenkrupp marine systems",
+    "tkms",
+    "airbus defence and space",
+    "airbus defence & space",
+    "mbda",
+    "renk",
+    "heckler & koch",
+    "heckler und koch",
+    "german naval yards",
+    "ffg flensburger fahrzeugbau",
+    "atlas elektronik",
+    "german propulsion systems",
+    "oerlikon",
+    "wehrtechnik",
+    "rüstungsindustrie",
+    "defence systems",
+    "defense systems",
+    "military systems",
+]
+
+# ---------------------------------------------------------------------------
 # Freshness window
 # ---------------------------------------------------------------------------
 MAX_AGE_DAYS = 7
