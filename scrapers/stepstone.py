@@ -24,7 +24,7 @@ import requests
 from bs4 import BeautifulSoup
 
 import config
-from scrapers.common import get_logger, make_job, passes_seniority_filter
+from scrapers.common import get_logger, make_job, passes_permanent_filter, passes_seniority_filter
 
 log = get_logger("stepstone")
 
@@ -126,6 +126,7 @@ def _search_one(keyword):
                 "city": city,
                 "raw_age_text": raw_age,
                 "age_days": _age_to_days(raw_age),
+                "context_text": container_text,  # carries "Befristung: ..." if present
             }
         )
 
@@ -151,6 +152,9 @@ def scrape():
 
             title = item["title"]
             if not passes_seniority_filter(title):
+                continue
+            check_text = f"{title} {item.get('company', '')} {item.get('context_text', '')}"
+            if not passes_permanent_filter(check_text):
                 continue
 
             age_days = item.get("age_days")
