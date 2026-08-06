@@ -1,5 +1,6 @@
 """Shared helpers for all scrapers."""
 import logging
+import re
 
 import config
 
@@ -7,6 +8,12 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
+
+# Matches "befristet", "befristete", "befristeter", "befristetes", etc. as a
+# standalone word. Deliberately does NOT match inside "unbefristet" -- there
+# is no word boundary between the "n" of "un" and the "b" of "befristet"
+# since both are word characters, so \b correctly refuses to match there.
+_BEFRISTET_RE = re.compile(r"\bbefristet\w*", re.IGNORECASE)
 
 
 def get_logger(name):
@@ -32,6 +39,21 @@ def passes_seniority_filter(title):
         return True
     lowered = title.lower()
     return not any(term in lowered for term in config.SENIORITY_EXCLUDE)
+
+
+def passes_permanent_filter(text):
+    """Drop postings that look like fixed-term contracts or temp-staffing
+    agency placements, based on free text (title, company name, and/or any
+    extra snippet a scraper has available). Safe against "unbefristet"
+    (permanent) -- see the comment on _BEFRISTET_RE above."""
+    if not text:
+        return True
+    lowered = text.lower()
+    if any(term in lowered for term in config.TEMP_AGENCY_TERMS):
+        return False
+    if _BEFRISTET_RE.search(lowered):
+        return False
+    return True
 
 
 def dedupe_key(job):
