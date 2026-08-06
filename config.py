@@ -90,6 +90,24 @@ SENIORITY_EXCLUDE = [
 ]
 
 # ---------------------------------------------------------------------------
+# Permanent-only filter -- exclude fixed-term contracts and temp-staffing
+# agency postings. "unbefristet" (permanent) is never matched by mistake --
+# see passes_permanent_filter() in scrapers/common.py for why.
+# Add more staffing-agency brand names here if you notice them slipping
+# through (e.g. specific agencies you keep seeing).
+# ---------------------------------------------------------------------------
+TEMP_AGENCY_TERMS = [
+    "zeitarbeit",
+    "leiharbeit",
+    "arbeitnehmerüberlassung",
+    "personaldienstleistung",
+    "temporärarbeit",
+    "temporary employment",
+    "temp agency",
+    "staffing agency",
+]
+
+# ---------------------------------------------------------------------------
 # Freshness window
 # ---------------------------------------------------------------------------
 MAX_AGE_DAYS = 7
