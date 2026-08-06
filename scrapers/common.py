@@ -1,0 +1,39 @@
+"""Shared helpers for all scrapers."""
+import logging
+
+import config
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+
+
+def get_logger(name):
+    return logging.getLogger(name)
+
+
+def make_job(source, title, company, city, url, posted_iso_date=None, raw_age_text=""):
+    """Normalized job record used across all scrapers."""
+    return {
+        "source": source,
+        "title": (title or "").strip(),
+        "company": (company or "").strip(),
+        "city": (city or "").strip(),
+        "url": (url or "").strip(),
+        "posted_date": posted_iso_date,  # ISO date string 'YYYY-MM-DD' or None
+        "raw_age_text": raw_age_text,
+    }
+
+
+def passes_seniority_filter(title):
+    """Drop postings that look senior/lead/management based on title text."""
+    if not title:
+        return True
+    lowered = title.lower()
+    return not any(term in lowered for term in config.SENIORITY_EXCLUDE)
+
+
+def dedupe_key(job):
+    """Stable identifier for a job posting, used for the seen-jobs store."""
+    return f"{job['source']}::{job['url']}"
