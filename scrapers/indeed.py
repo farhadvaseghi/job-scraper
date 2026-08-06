@@ -9,7 +9,13 @@ changes, which is far more robust than guessing CSS selectors.
 import time
 
 import config
-from scrapers.common import get_logger, make_job, passes_permanent_filter, passes_seniority_filter
+from scrapers.common import (
+    get_logger,
+    make_job,
+    passes_company_filter,
+    passes_permanent_filter,
+    passes_seniority_filter,
+)
 
 log = get_logger("indeed")
 
@@ -53,6 +59,8 @@ def scrape():
             if not passes_seniority_filter(title):
                 continue
             if not passes_permanent_filter(f"{title} {company}"):
+                continue
+            if not passes_company_filter(company):
                 continue
             # JobSpy's structured job_type field ('fulltime', 'contract', etc.)
             # -- 'contract'/'temporary' is Indeed's closest equivalent to
