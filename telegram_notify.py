@@ -2,6 +2,13 @@
 Sends the job digest to a Telegram channel via the Bot API directly
 (requests.post) -- reachable fine from GitHub Actions runners, which have
 normal unrestricted internet access.
+
+Telegram rate-limits bots (roughly 20 messages/minute to a channel). A big
+first run can easily produce dozens of messages, which previously came back
+as HTTP 429 "Too Many Requests" and lost the whole digest. So we:
+  * pace sends with config.TELEGRAM_SEND_DELAY_SECONDS between messages,
+  * on 429, sleep for the exact `retry_after` Telegram tells us and retry,
+  * report success PER SOURCE so main.py only marks delivered jobs as seen.
 """
 import time
 
@@ -53,55 +60,108 @@ def _pack(header, body_lines):
     return messages
 
 
-def format_digest(jobs_by_source):
-    """jobs_by_source: dict[str, list[job_dict]] -> list of message chunks.
+def format_source_messages(source, jobs):
+    """Build the message list for a single source."""
+    header = f"<b>{_escape_html(source)}</b> — {len(jobs)} new job(s)"
+    body = []
+    for job in jobs:
+        body.extend(_job_lines(job))
+    return _pack(header, body)
 
-    Each SOURCE becomes its own Telegram message (or several, if one source
-    has too many jobs to fit in one message), so results arrive grouped by
-    source -- Indeed in one message, Xing in another, etc. -- rather than one
-    giant mixed digest."""
+
+def format_digest(jobs_by_source):
+    """All messages across all sources (kept for testing/back-compat)."""
     messages = []
     for source, jobs in jobs_by_source.items():
-        if not jobs:
-            continue
-        header = f"<b>{_escape_html(source)}</b> — {len(jobs)} new job(s)"
-        body = []
-        for job in jobs:
-            body.extend(_job_lines(job))
-        messages.extend(_pack(header, body))
+        if jobs:
+            messages.extend(format_source_messages(source, jobs))
     return messages
 
 
-def send_digest(jobs_by_source):
-    if not config.TELEGRAM_BOT_TOKEN or not config.TELEGRAM_CHAT_ID:
-        log.error("TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID not set -- cannot send")
-        return False
-
-    chunks = format_digest(jobs_by_source)
-    if not chunks:
-        log.info("No new jobs this run -- nothing to send")
-        return True
-
-    url = TELEGRAM_API.format(token=config.TELEGRAM_BOT_TOKEN)
-    ok = True
-    for chunk in chunks:
+def _send_message(url, text):
+    """Send one message, retrying on rate limits. Returns True if delivered."""
+    for attempt in range(1, config.TELEGRAM_MAX_RETRIES + 1):
         try:
             resp = requests.post(
                 url,
                 json={
                     "chat_id": config.TELEGRAM_CHAT_ID,
-                    "text": chunk,
+                    "text": text,
                     "parse_mode": "HTML",
                     "disable_web_page_preview": True,
                 },
                 timeout=config.REQUEST_TIMEOUT,
             )
-            if resp.status_code != 200:
-                log.error("Telegram send failed: %s %s", resp.status_code, resp.text)
-                ok = False
-            time.sleep(1)
         except Exception as exc:
-            log.error("Telegram send raised: %s", exc)
-            ok = False
+            log.warning("Telegram send raised (attempt %d): %s", attempt, exc)
+            time.sleep(config.TELEGRAM_SEND_DELAY_SECONDS * attempt)
+            continue
 
-    return ok
+        if resp.status_code == 200:
+            return True
+
+        if resp.status_code == 429:
+            # Telegram tells us exactly how long to wait -- respect it.
+            wait = config.TELEGRAM_SEND_DELAY_SECONDS
+            try:
+                wait = int(resp.json()["parameters"]["retry_after"])
+            except Exception:
+                pass
+            log.warning(
+                "Telegram rate-limited (attempt %d/%d) -- waiting %ss",
+                attempt, config.TELEGRAM_MAX_RETRIES, wait + 1,
+            )
+            time.sleep(wait + 1)
+            continue
+
+        # Any other error (bad HTML, message too long, etc.) won't be fixed
+        # by retrying.
+        log.error("Telegram send failed: %s %s", resp.status_code, resp.text)
+        return False
+
+    log.error("Telegram send gave up after %d attempts", config.TELEGRAM_MAX_RETRIES)
+    return False
+
+
+def send_digest(jobs_by_source):
+    """Sends one message per source (more if a source is large).
+
+    Returns (ok, delivered_sources): `delivered_sources` is the set of sources
+    whose messages ALL went through -- main.py marks only those jobs as seen,
+    so anything that failed is retried on the next run instead of being lost.
+    """
+    delivered = set()
+
+    if not config.TELEGRAM_BOT_TOKEN or not config.TELEGRAM_CHAT_ID:
+        log.error("TELEGRAM_BOT_TOKEN / TELEGRAM_CHAT_ID not set -- cannot send")
+        return False, delivered
+
+    url = TELEGRAM_API.format(token=config.TELEGRAM_BOT_TOKEN)
+    ok = True
+    first = True
+
+    for source, jobs in jobs_by_source.items():
+        if not jobs:
+            continue
+        messages = format_source_messages(source, jobs)
+        source_ok = True
+        for text in messages:
+            if not first:
+                time.sleep(config.TELEGRAM_SEND_DELAY_SECONDS)
+            first = False
+            if not _send_message(url, text):
+                source_ok = False
+                ok = False
+        if source_ok:
+            delivered.add(source)
+            log.info("Telegram: delivered %d %s job(s)", len(jobs), source)
+        else:
+            log.error(
+                "Telegram: %s not fully delivered -- its jobs stay unseen and "
+                "will be retried next run", source,
+            )
+
+    if not any(jobs for jobs in jobs_by_source.values()):
+        log.info("No new jobs this run -- nothing to send")
+
+    return ok, delivered
