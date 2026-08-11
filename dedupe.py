@@ -7,6 +7,11 @@ Entries older than config.SEEN_RETENTION_DAYS are pruned automatically so the
 file doesn't grow forever. Keys use the NORMALIZED job URL (see
 scrapers/common.normalize_url) so a posting isn't re-sent just because its
 tracking (utm_*) params changed between runs.
+
+IMPORTANT: a job is only recorded as "seen" AFTER it was actually delivered
+to Telegram (see main.py). Marking on discovery instead of on delivery meant
+that when a send failed -- e.g. Telegram rate-limiting us with HTTP 429 --
+the jobs were remembered as sent and silently never reached the channel.
 """
 import json
 import os
@@ -35,27 +40,37 @@ def save_seen(seen):
         json.dump(seen, f, ensure_ascii=False, indent=2, sort_keys=True)
 
 
-def filter_new_and_update(jobs, seen):
-    """Returns (new_jobs, updated_seen_dict). Also prunes stale entries."""
-    now = datetime.now(timezone.utc)
-    cutoff = now - timedelta(days=config.SEEN_RETENTION_DAYS)
-
-    # prune
-    pruned = {}
+def prune(seen):
+    """Drop entries older than the retention window."""
+    cutoff = datetime.now(timezone.utc) - timedelta(days=config.SEEN_RETENTION_DAYS)
+    kept = {}
     for key, seen_at in seen.items():
         try:
             ts = datetime.fromisoformat(seen_at)
         except Exception:
             continue
         if ts >= cutoff:
-            pruned[key] = seen_at
+            kept[key] = seen_at
+    return kept
 
+
+def filter_new(jobs, seen):
+    """Return only jobs not already in the seen store. Does NOT mark anything
+    as seen -- call mark_seen() after the jobs are actually delivered."""
     new_jobs = []
+    batch_keys = set()  # also dedupes within this run
     for job in jobs:
         key = dedupe_key(job)
-        if key in pruned:
+        if key in seen or key in batch_keys:
             continue
-        pruned[key] = now.isoformat()
+        batch_keys.add(key)
         new_jobs.append(job)
+    return new_jobs
 
-    return new_jobs, pruned
+
+def mark_seen(seen, jobs):
+    """Record jobs as sent. Returns the updated dict."""
+    now = datetime.now(timezone.utc).isoformat()
+    for job in jobs:
+        seen[dedupe_key(job)] = now
+    return seen
