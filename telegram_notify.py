@@ -25,42 +25,51 @@ def _escape_html(text):
     )
 
 
-def format_digest(jobs_by_source):
-    """jobs_by_source: dict[str, list[job_dict]] -> list of message chunks."""
-    total = sum(len(v) for v in jobs_by_source.values())
-    if total == 0:
-        return []
+def _job_lines(job):
+    title = _escape_html(job["title"])
+    company = _escape_html(job["company"])
+    city = _escape_html(job["city"])
+    meta = " - ".join(p for p in [company, city] if p)
+    age = f" ({_escape_html(job['raw_age_text'])})" if job.get("raw_age_text") else ""
+    out = [f'• <a href="{job["url"]}">{title}</a>{age}']
+    if meta:
+        out.append(f"  {meta}")
+    return out
 
-    lines = [f"<b>New job postings ({total})</b>\n"]
+
+def _pack(header, body_lines):
+    """Combine a header with body lines into one or more messages, each under
+    Telegram's length limit. The header is repeated (with a "cont." marker) if
+    a single source's jobs overflow into multiple messages."""
+    messages = []
+    current = header
+    for line in body_lines:
+        if len(current) + len(line) + 1 > MAX_MESSAGE_LEN:
+            messages.append(current)
+            current = header + " (cont.)\n" + line
+        else:
+            current = current + "\n" + line
+    messages.append(current)
+    return messages
+
+
+def format_digest(jobs_by_source):
+    """jobs_by_source: dict[str, list[job_dict]] -> list of message chunks.
+
+    Each SOURCE becomes its own Telegram message (or several, if one source
+    has too many jobs to fit in one message), so results arrive grouped by
+    source -- Indeed in one message, Xing in another, etc. -- rather than one
+    giant mixed digest."""
+    messages = []
     for source, jobs in jobs_by_source.items():
         if not jobs:
             continue
-        lines.append(f"\n<b>{_escape_html(source)}</b> ({len(jobs)})")
+        header = f"<b>{_escape_html(source)}</b> — {len(jobs)} new job(s)"
+        body = []
         for job in jobs:
-            title = _escape_html(job["title"])
-            company = _escape_html(job["company"])
-            city = _escape_html(job["city"])
-            meta = " - ".join(p for p in [company, city] if p)
-            age = f" ({_escape_html(job['raw_age_text'])})" if job.get("raw_age_text") else ""
-            lines.append(f'• <a href="{job["url"]}">{title}</a>{age}')
-            if meta:
-                lines.append(f"  {meta}")
-
-    full_text = "\n".join(lines)
-
-    # split into chunks under Telegram's message length limit
-    chunks = []
-    current = ""
-    for line in full_text.split("\n"):
-        if len(current) + len(line) + 1 > MAX_MESSAGE_LEN:
-            chunks.append(current)
-            current = line
-        else:
-            current = current + "\n" + line if current else line
-    if current:
-        chunks.append(current)
-
-    return chunks
+            body.extend(_job_lines(job))
+        messages.extend(_pack(header, body))
+    return messages
 
 
 def send_digest(jobs_by_source):
