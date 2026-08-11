@@ -10,10 +10,16 @@ on:
 permissions:
   contents: write  # needed to commit the updated seen_jobs.json back to the repo
 
+# Never run two copies at once -- overlapping runs could both try to push the
+# dedup state and clobber each other, causing duplicate Telegram posts.
+concurrency:
+  group: job-scraper
+  cancel-in-progress: false
+
 jobs:
   scrape-and-notify:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -38,9 +44,27 @@ jobs:
         run: python main.py
 
       - name: Commit updated dedup state
+        # Runs even if the scraper step failed, so jobs we already sent to
+        # Telegram are still recorded and never re-sent. Rebase-and-retry so a
+        # push can't be lost if main moved while the run was in progress
+        # (another cause of duplicate posts).
+        if: always()
         run: |
           git config user.name "job-scraper-bot"
           git config user.email "actions@github.com"
           git add state/seen_jobs.json
-          git diff --cached --quiet || git commit -m "Update seen jobs state [skip ci]"
-          git push
+          if git diff --cached --quiet; then
+            echo "No dedup-state changes to commit."
+            exit 0
+          fi
+          git commit -m "Update seen jobs state [skip ci]"
+          for attempt in 1 2 3 4 5; do
+            if git push; then
+              echo "Pushed dedup state on attempt $attempt."
+              exit 0
+            fi
+            echo "Push failed (attempt $attempt) -- rebasing on latest main and retrying."
+            git pull --rebase origin main || true
+          done
+          echo "Could not push dedup state after 5 attempts." >&2
+          exit 1
