@@ -3,11 +3,17 @@ Scraper for the official Bundesagentur fuer Arbeit (Arbeitsagentur) Jobsuche
 API. This is a genuine public API (not scraping) -- see
 https://jobsuche.api.bund.dev/ and https://github.com/bundesAPI/jobsuche-api
 
-Confirmed field names against the published openapi.yaml:
-  stellenangebote[].beruf, .refnr, .arbeitgeber,
+Field names per the published openapi.yaml:
+  stellenangebote[].beruf, .refnr (v6: .referenznummer), .arbeitgeber,
   .aktuelleVeroeffentlichungsdatum, .arbeitsort.ort, .arbeitsort.plz
 The `veroeffentlichtseit` param filters server-side by days-since-published,
 so we don't need to compute freshness client-side for this source.
+
+ENDPOINT FALLBACK: `/pc/v4/app/jobs` began answering "403 No match found",
+which is an API-gateway routing error (the path no longer resolves), not an
+auth failure -- it happened even with no optional params at all. So we try the
+endpoints in config.ARBEITSAGENTUR_API_URLS in order and remember whichever
+one answers, instead of assuming a single fixed path.
 """
 import time
 
@@ -31,6 +37,7 @@ HEADERS = {
         "iOS 15.1.0) Alamofire/5.4.4"
     ),
     "X-API-Key": config.ARBEITSAGENTUR_CLIENT_ID,
+    "Accept": "application/json",
 }
 
 
@@ -48,44 +55,64 @@ _BASE_PARAMS = {
 # params when possible; if the request fails we retry WITHOUT it and let the
 # client-side passes_permanent_filter / passes_company_filter do the work.
 #
-# We deliberately do NOT send a `zeitarbeit` param here: it was the exact
-# param that triggered "403 No match found" and made Arbeitsagentur return 0
-# results, so it's dropped entirely (per user request). Temp-staffing agency
-# postings are instead excluded client-side via config.TEMP_AGENCY_TERMS
-# (matched against the employer name in passes_permanent_filter).
+# We deliberately do NOT send a `zeitarbeit` param here -- temp-staffing agency
+# postings are excluded client-side via config.TEMP_AGENCY_TERMS instead.
 _STRICT_PARAMS = {
     "befristung": 2,  # 2 = unbefristet (permanent) only
 }
 
+# Remembered across calls once we find an endpoint that answers.
+_working_url = None
 
-def _request(params):
-    resp = requests.get(
-        config.ARBEITSAGENTUR_API_URL,
-        headers=HEADERS,
-        params=params,
-        timeout=config.REQUEST_TIMEOUT,
+
+def _request(url, params):
+    return requests.get(
+        url, headers=HEADERS, params=params, timeout=config.REQUEST_TIMEOUT
     )
-    return resp
+
+
+def _try_endpoints(params):
+    """Try each configured endpoint until one returns 200. Returns the parsed
+    JSON, or None if every endpoint refused."""
+    global _working_url
+
+    urls = list(config.ARBEITSAGENTUR_API_URLS)
+    if _working_url:  # prefer the one that already worked this run
+        urls.remove(_working_url)
+        urls.insert(0, _working_url)
+
+    for url in urls:
+        try:
+            resp = _request(url, params)
+        except Exception as exc:
+            log.debug("Arbeitsagentur endpoint %s raised: %s", url, exc)
+            continue
+        if resp.status_code == 200:
+            if _working_url != url:
+                log.info("Arbeitsagentur: using endpoint %s", url)
+                _working_url = url
+            try:
+                return resp.json()
+            except Exception as exc:
+                log.warning("Arbeitsagentur: bad JSON from %s: %s", url, exc)
+                return None
+        log.debug("Arbeitsagentur endpoint %s -> %s", url, resp.status_code)
+    return None
 
 
 def _search_one(keyword):
     base = dict(_BASE_PARAMS, was=keyword)
 
     # Attempt 1: with the strict server-side permanent filter.
-    strict = dict(base, **_STRICT_PARAMS)
-    resp = _request(strict)
-    if resp.status_code == 200:
-        return resp.json().get("stellenangebote", []) or []
+    data = _try_endpoints(dict(base, **_STRICT_PARAMS))
+    if data is None:
+        # Attempt 2: without it -- permanent/temp/defense filtering still
+        # happens client-side, so we lose nothing but a little bandwidth.
+        data = _try_endpoints(base)
+    if data is None:
+        raise RuntimeError("all Arbeitsagentur endpoints refused the request")
 
-    # Attempt 2 (fallback): the plain, well-known call without the strict
-    # filter. Permanent/temp/defense filtering still happens client-side.
-    log.info(
-        "Arbeitsagentur %r: strict query returned %s, retrying without "
-        "the befristung param", keyword, resp.status_code,
-    )
-    resp = _request(base)
-    resp.raise_for_status()
-    return resp.json().get("stellenangebote", []) or []
+    return data.get("stellenangebote", []) or []
 
 
 def scrape():
@@ -102,12 +129,13 @@ def scrape():
             continue
 
         for item in results:
+            # v4 calls it refnr, v6 calls it referenznummer
             refnr = item.get("refnr") or item.get("referenznummer")
             if not refnr or refnr in seen_refnr:
                 continue
             seen_refnr.add(refnr)
 
-            title = to_text(item.get("beruf"))
+            title = to_text(item.get("beruf")) or to_text(item.get("titel"))
             employer = to_text(item.get("arbeitgeber"))
             if not passes_seniority_filter(title):
                 continue
@@ -138,5 +166,11 @@ def scrape():
 
         time.sleep(config.REQUEST_DELAY_SECONDS)
 
+    if not jobs:
+        log.warning(
+            "Arbeitsagentur: 0 jobs -- if every endpoint in "
+            "config.ARBEITSAGENTUR_API_URLS refused, check "
+            "https://jobsuche.api.bund.dev/ for the current API path."
+        )
     log.info("Arbeitsagentur: collected %d unique jobs", len(jobs))
     return jobs
