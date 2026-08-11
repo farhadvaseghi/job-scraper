@@ -97,14 +97,32 @@ SENIORITY_EXCLUDE = [
 # through (e.g. specific agencies you keep seeing).
 # ---------------------------------------------------------------------------
 TEMP_AGENCY_TERMS = [
+    # generic German staffing terms -- these appear in the company name of most
+    # temp agencies (e.g. "XY Zeitarbeit GmbH", "ABC Personaldienstleistungen")
     "zeitarbeit",
     "leiharbeit",
     "arbeitnehmerüberlassung",
     "personaldienstleistung",
+    "personaldienstleister",
     "temporärarbeit",
     "temporary employment",
     "temp agency",
     "staffing agency",
+    # distinctive staffing-agency brand names (safe as substrings). Since the
+    # server-side zeitarbeit filter was removed, these catch the big agencies
+    # by name. Add any others you keep seeing in results.
+    "randstad",
+    "adecco",
+    "manpower",
+    "tempton",
+    "orizon",
+    "trenkwalder",
+    "piening",
+    "hofmann personal",
+    "dekra arbeit",
+    "argo personal",
+    "unique personal",
+    "i.k. hofmann",
 ]
 
 # ---------------------------------------------------------------------------
@@ -150,6 +168,12 @@ DEFENSE_COMPANIES = [
 # Freshness window
 # ---------------------------------------------------------------------------
 MAX_AGE_DAYS = 7
+
+# How long a posting stays remembered in the dedup store (state/seen_jobs.json)
+# before it's pruned. Must be comfortably LONGER than how long a real posting
+# stays live, otherwise a still-open job gets forgotten and re-sent. 60 days
+# covers virtually all postings while keeping the file from growing forever.
+SEEN_RETENTION_DAYS = 60
 
 # ---------------------------------------------------------------------------
 # Telegram (from environment / GitHub Actions secrets)
