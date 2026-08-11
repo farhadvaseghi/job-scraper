@@ -1,26 +1,28 @@
 """
 Scraper for StepStone.de.
 
-StepStone has no public API, so this scrapes their server-rendered search
-results page (confirmed to be server-rendered HTML, not JS-only, by manual
-inspection). Job detail links reliably match the pattern
-`/stellenangebote--...html`, and each result card includes a relative
-freshness string like "vor 2 Tagen" / "vor 1 Woche" / "vor 3 Stunden" -- we
-use both the `age_7` server-side filter AND a client-side re-check since the
-server filter's exact boundary behavior isn't publicly documented.
+StepStone has no public API. It is ALSO aggressive about blocking datacenter
+IPs: a plain `requests.get` from a GitHub Actions runner just hangs until it
+read-times-out (that's why this source returned 0 results for every keyword).
+So, like the Xing scraper, this drives a real headless Chromium via Playwright
+-- a genuine browser gets a real response where raw requests get stonewalled.
 
-NOTE: parsing company name / precise date relies on text-proximity
-heuristics rather than exact CSS class names (which can change without
-notice). If StepStone changes their markup, this scraper may start
-returning fewer/no results -- it's wrapped in try/except per item and per
-keyword so a parsing failure here never breaks the other sources or the
-overall run.
+The page is server-rendered HTML, so once we have the rendered content we parse
+it with BeautifulSoup exactly as before: job detail links reliably match the
+pattern `/stellenangebote--...html`, and each result card carries a relative
+freshness string like "vor 2 Tagen" / "vor 1 Woche" / "vor 3 Stunden".
+
+NOTE: parsing company name / precise date relies on text-proximity heuristics
+rather than exact CSS class names (which can change without notice). Everything
+is wrapped in try/except per item and per keyword so a parsing failure or a
+single blocked keyword never breaks the other sources or the overall run.
+Requires Playwright with Chromium (installed by the workflow's
+`playwright install chromium` step).
 """
 import re
 import time
 import unicodedata
 
-import requests
 from bs4 import BeautifulSoup
 
 import config
@@ -79,18 +81,8 @@ def _find_container(anchor):
     return anchor.parent or anchor
 
 
-def _search_one(keyword):
-    slug = _slugify(keyword)
-    url = config.STEPSTONE_SEARCH_URL.format(slug=slug)
-    headers = {"User-Agent": config.USER_AGENT, "Accept-Language": "de-DE,de;q=0.9"}
-    params = {"action": "facet_selected;age;age_7", "ag": "age_7"}
-
-    resp = requests.get(url, headers=headers, params=params, timeout=config.REQUEST_TIMEOUT)
-    if resp.status_code == 404:
-        return []
-    resp.raise_for_status()
-
-    soup = BeautifulSoup(resp.text, "html.parser")
+def _parse_html(html):
+    soup = BeautifulSoup(html, "html.parser")
     results = []
     seen_hrefs = set()
 
@@ -139,49 +131,81 @@ def _search_one(keyword):
     return results
 
 
+def _search_one(page, keyword):
+    slug = _slugify(keyword)
+    url = config.STEPSTONE_SEARCH_URL.format(slug=slug)
+    # age_7 = only postings from the last 7 days (server-side freshness filter)
+    full_url = url + "?action=facet_selected%3Bage%3Bage_7&ag=age_7"
+
+    page.goto(full_url, timeout=30000, wait_until="domcontentloaded")
+    try:
+        page.wait_for_load_state("networkidle", timeout=10000)
+    except Exception:
+        pass
+    time.sleep(2)  # let any late-rendered results settle
+
+    html = page.content()
+    return _parse_html(html)
+
+
 def scrape():
     jobs = []
     seen_urls = set()
 
-    for keyword in config.KEYWORDS:
-        try:
-            results = _search_one(keyword)
-        except Exception as exc:
-            log.warning("StepStone search failed for %r: %s", keyword, exc)
-            continue
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        log.error("Playwright not installed -- skipping StepStone (see requirements.txt)")
+        return jobs
 
-        for item in results:
-            url = item["url"]
-            if url in seen_urls:
-                continue
-            seen_urls.add(url)
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page(user_agent=config.USER_AGENT, locale="de-DE")
 
-            title = item["title"]
-            if not passes_seniority_filter(title):
-                continue
-            check_text = f"{title} {item.get('company', '')} {item.get('context_text', '')}"
-            if not passes_permanent_filter(check_text):
-                continue
-            if not passes_company_filter(item.get("company", "")):
-                continue
+            for keyword in config.KEYWORDS:
+                try:
+                    results = _search_one(page, keyword)
+                except Exception as exc:
+                    log.warning("StepStone search failed for %r: %s", keyword, exc)
+                    continue
 
-            age_days = item.get("age_days")
-            if age_days is not None and age_days > config.MAX_AGE_DAYS:
-                continue
+                for item in results:
+                    url = item["url"]
+                    if url in seen_urls:
+                        continue
+                    seen_urls.add(url)
 
-            jobs.append(
-                make_job(
-                    source="StepStone",
-                    title=title,
-                    company=item.get("company", ""),
-                    city=item.get("city", ""),
-                    url=url,
-                    posted_iso_date=None,
-                    raw_age_text=item.get("raw_age_text", ""),
-                )
-            )
+                    title = item["title"]
+                    if not passes_seniority_filter(title):
+                        continue
+                    check_text = f"{title} {item.get('company', '')} {item.get('context_text', '')}"
+                    if not passes_permanent_filter(check_text):
+                        continue
+                    if not passes_company_filter(item.get("company", "")):
+                        continue
 
-        time.sleep(config.REQUEST_DELAY_SECONDS)
+                    age_days = item.get("age_days")
+                    if age_days is not None and age_days > config.MAX_AGE_DAYS:
+                        continue
+
+                    jobs.append(
+                        make_job(
+                            source="StepStone",
+                            title=title,
+                            company=item.get("company", ""),
+                            city=item.get("city", ""),
+                            url=url,
+                            posted_iso_date=None,
+                            raw_age_text=item.get("raw_age_text", ""),
+                        )
+                    )
+
+                time.sleep(config.REQUEST_DELAY_SECONDS)
+
+            browser.close()
+    except Exception as exc:
+        log.error("StepStone scraper crashed: %s", exc)
 
     log.info("StepStone: collected %d unique jobs", len(jobs))
     return jobs
