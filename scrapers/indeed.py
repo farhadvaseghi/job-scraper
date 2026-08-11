@@ -1,10 +1,19 @@
 """
 Scraper for Indeed Germany.
 
+Scraper for Indeed, across config.INDEED_COUNTRIES (Germany, Netherlands,
+Austria, Switzerland).
+
 Uses the `python-jobspy` library (https://github.com/speedyapply/JobSpy)
 instead of hand-rolled HTML scraping. JobSpy talks to Indeed's own internal
 GraphQL search API and is actively maintained against Indeed's markup/API
 changes, which is far more robust than guessing CSS selectors.
+
+jobspy maps a country name to the right Indeed subdomain via its Country
+enum (de / nl / at / ch), so multi-country support is just another loop --
+this is the only one of the four sources that reaches outside Germany
+cheaply. Non-German countries use a reduced English keyword list; see
+_keywords_for().
 """
 import time
 
@@ -21,14 +30,14 @@ from scrapers.common import (
 log = get_logger("indeed")
 
 
-def _search_one(keyword):
+def _search_one(keyword, country):
     from jobspy import scrape_jobs  # imported lazily so other scrapers don't need it
 
     df = scrape_jobs(
         site_name=["indeed"],
         search_term=keyword,
-        location="Germany",
-        country_indeed="Germany",
+        location=country,
+        country_indeed=country,
         results_wanted=50,
         hours_old=config.MAX_AGE_DAYS * 24,
         verbose=0,
@@ -38,15 +47,33 @@ def _search_one(keyword):
     return df.to_dict("records")
 
 
+def _keywords_for(country):
+    """Full keyword set at home, English-only subset abroad.
+
+    The German compound terms return next to nothing on Indeed Netherlands,
+    and each keyword is another slow request -- the full list across four
+    countries would be ~128 calls and risk the workflow timeout.
+    """
+    if country == "Germany":
+        return config.KEYWORDS
+    return config.INTERNATIONAL_KEYWORDS
+
+
 def scrape():
     jobs = []
     seen_urls = set()
 
-    for keyword in config.KEYWORDS:
+    searches = [
+        (country, keyword)
+        for country in config.INDEED_COUNTRIES
+        for keyword in _keywords_for(country)
+    ]
+
+    for country, keyword in searches:
         try:
-            results = _search_one(keyword)
+            results = _search_one(keyword, country)
         except Exception as exc:
-            log.warning("Indeed search failed for %r: %s", keyword, exc)
+            log.warning("Indeed search failed for %r in %s: %s", keyword, country, exc)
             continue
 
         for item in results:
@@ -99,5 +126,8 @@ def scrape():
 
         time.sleep(config.REQUEST_DELAY_SECONDS)
 
-    log.info("Indeed: collected %d unique jobs", len(jobs))
+    log.info(
+        "Indeed: collected %d unique jobs across %s",
+        len(jobs), ", ".join(config.INDEED_COUNTRIES),
+    )
     return jobs

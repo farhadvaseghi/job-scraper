@@ -1,4 +1,4 @@
-"""
+r"""
 Scraper for StepStone.de.
 
 StepStone has no public API. It is ALSO aggressive about blocking datacenter
@@ -8,15 +8,30 @@ So, like the Xing scraper, this drives a real headless Chromium via Playwright
 -- a genuine browser gets a real response where raw requests get stonewalled.
 
 The page is server-rendered HTML, so once we have the rendered content we parse
-it with BeautifulSoup exactly as before: job detail links reliably match the
-pattern `/stellenangebote--...html`, and each result card carries a relative
-freshness string like "vor 2 Tagen" / "vor 1 Woche" / "vor 3 Stunden".
+it with BeautifulSoup. Result cards carry stable `data-at` hooks --
+`job-item`, `job-item-title`, `job-item-company-name`, `job-item-location`,
+`job-item-timeago` -- which are used first; the older
+"scan every /stellenangebote--*.html anchor" heuristic is kept as a fallback
+in case those attributes disappear.
 
-NOTE: parsing company name / precise date relies on text-proximity heuristics
-rather than exact CSS class names (which can change without notice). Everything
-is wrapped in try/except per item and per keyword so a parsing failure or a
-single blocked keyword never breaks the other sources or the overall run.
-Requires Playwright with Chromium (installed by the workflow's
+TWO BUGS FIXED HERE (both verified live 2026-08-11):
+
+1. The search URL carried `?action=facet_selected%3Bage%3Bage_7&ag=age_7`.
+   That exact query string makes StepStone black-hole the request -- it never
+   responds and every keyword died on a 45s timeout, which is why this source
+   reported 0 jobs for every keyword. `?ag=age_7` ALONE works fine and still
+   applies the 7-day filter (2050 hits vs 5181 unfiltered on a test query).
+
+2. Company and city were parsed with a regex expecting a `*` separator
+   (`([^|]+?)\s+\*\s+([^|*]+)`), but the card text is `|`-separated, so both
+   fields came out empty on every single result. That also silently disabled
+   the defense-employer filter for this source, since
+   passes_company_filter("") is always True -- a Rheinmetall posting was the
+   top hit on the test query and would have gone straight to the channel.
+
+Everything is wrapped in try/except per item and per keyword so a parsing
+failure or a single blocked keyword never breaks the other sources or the
+overall run. Requires Playwright with Chromium (installed by the workflow's
 `playwright install chromium` step).
 """
 import re
@@ -37,7 +52,12 @@ from scrapers.common import (
 log = get_logger("stepstone")
 
 JOB_LINK_RE = re.compile(r"/stellenangebote--[^\"'\s]+\.html")
-AGE_RE = re.compile(r"vor\s+(\d+)\s+(Stunden?|Tag(?:en)?|Wochen?)|vor\s+1\s+Woche", re.IGNORECASE)
+# "Minuten" matters: the freshest cards say "vor 34 Minuten", which used to
+# fall through as an unknown age.
+AGE_RE = re.compile(
+    r"vor\s+(\d+)\s+(Minuten?|Stunden?|Tag(?:en)?|Wochen?)|vor\s+1\s+Woche",
+    re.IGNORECASE,
+)
 
 
 def _slugify(keyword):
@@ -62,7 +82,7 @@ def _age_to_days(age_text):
     if not num:
         return 0
     num = int(num)
-    if "Stunde" in unit:
+    if "Minute" in unit or "Stunde" in unit:
         return 0
     if "Tag" in unit:
         return num
@@ -81,7 +101,75 @@ def _find_container(anchor):
     return anchor.parent or anchor
 
 
-def _parse_html(html):
+def _absolute(href, base):
+    if href.startswith("/"):
+        return base + href
+    return href
+
+
+def _card_text(node, sub):
+    el = node.select_one("[data-at='%s']" % sub)
+    return el.get_text(" ", strip=True) if el else ""
+
+
+def _parse_cards(soup, base):
+    """Preferred parser: StepStone's `data-at` result cards."""
+    results = []
+    seen_hrefs = set()
+
+    for card in soup.select("[data-at='job-item']"):
+        try:
+            link = card.select_one("[data-at='job-item-title']")
+            if link is None:
+                continue
+            href = link.get("href") or ""
+            if not href:
+                anchor = link.find("a", href=True) or link.find_parent("a", href=True)
+                href = anchor["href"] if anchor else ""
+            if not href or not JOB_LINK_RE.search(href):
+                continue
+            href = _absolute(href, base)
+            if href in seen_hrefs:
+                continue
+            seen_hrefs.add(href)
+
+            title = link.get_text(" ", strip=True)
+            if not title:
+                continue
+
+            raw_age = _card_text(card, "job-item-timeago")
+            # snippet text is kept so passes_permanent_filter can still see a
+            # "befristet auf 2 Jahre" buried in the ad body
+            context = " | ".join(
+                p for p in (
+                    title,
+                    _card_text(card, "job-item-company-name"),
+                    _card_text(card, "job-item-location"),
+                    _card_text(card, "jobcard-content"),
+                    raw_age,
+                ) if p
+            )
+
+            results.append(
+                {
+                    "title": title,
+                    "url": href,
+                    "company": _card_text(card, "job-item-company-name"),
+                    "city": _card_text(card, "job-item-location"),
+                    "raw_age_text": raw_age,
+                    "age_days": _age_to_days(raw_age),
+                    "context_text": context,
+                }
+            )
+        except Exception:
+            continue
+
+    return results
+
+
+def _parse_anchors(html, base):
+    """Fallback parser: scan every job-detail anchor and read its surrounding
+    text. Used only if the `data-at` card structure is gone."""
     soup = BeautifulSoup(html, "html.parser")
     results = []
     seen_hrefs = set()
@@ -89,9 +177,7 @@ def _parse_html(html):
     for a in soup.find_all("a", href=True):
         if not JOB_LINK_RE.search(a["href"]):
             continue
-        href = a["href"]
-        if href.startswith("/"):
-            href = "https://www.stepstone.de" + href
+        href = _absolute(a["href"], base)
         if href in seen_hrefs:
             continue
         seen_hrefs.add(href)
@@ -109,12 +195,18 @@ def _parse_html(html):
         age_match = AGE_RE.search(container_text)
         raw_age = age_match.group(0) if age_match else ""
 
+        # Card text reads "Title | Company | City | ...". The previous regex
+        # looked for a "*" separator that the markup does not use, so company
+        # and city came back empty on every result.
         company = ""
         city = ""
-        star_match = re.search(r"([^|]+?)\s+\*\s+([^|*]+)", container_text)
-        if star_match:
-            company = star_match.group(1).strip()
-            city = star_match.group(2).strip()
+        fields = [f.strip() for f in container_text.split("|") if f.strip()]
+        if fields and fields[0] == title and len(fields) > 1:
+            fields = fields[1:]
+        if fields:
+            company = fields[0]
+        if len(fields) > 1 and not AGE_RE.search(fields[1]):
+            city = fields[1]
 
         results.append(
             {
@@ -131,11 +223,24 @@ def _parse_html(html):
     return results
 
 
-def _search_one(page, keyword):
+def _parse_html(html, base="https://www.stepstone.de"):
+    """Structured `data-at` cards if present, anchor-scan heuristic if not."""
+    soup = BeautifulSoup(html, "html.parser")
+    results = _parse_cards(soup, base)
+    if results:
+        return results
+    log.debug("StepStone: no data-at cards found, falling back to anchor scan")
+    return _parse_anchors(html, base)
+
+
+def _search_one(page, keyword, url_template, base):
     slug = _slugify(keyword)
-    url = config.STEPSTONE_SEARCH_URL.format(slug=slug)
-    # age_7 = only postings from the last 7 days (server-side freshness filter)
-    full_url = url + "?action=facet_selected%3Bage%3Bage_7&ag=age_7"
+    url = url_template.format(slug=slug)
+    # ag=age_7 = only postings from the last 7 days (server-side filter).
+    # Do NOT add `action=facet_selected;age;age_7` alongside it -- that exact
+    # combination makes StepStone stop responding entirely (verified: two
+    # 30s timeouts in a row, while `?ag=age_7` answered in 4s).
+    full_url = url + "?ag=age_7"
 
     # StepStone sometimes kills the first connection outright
     # (ERR_HTTP2_PROTOCOL_ERROR / ERR_CONNECTION_RESET) as an anti-bot
@@ -159,7 +264,7 @@ def _search_one(page, keyword):
     time.sleep(2)  # let any late-rendered results settle
 
     html = page.content()
-    return _parse_html(html)
+    return _parse_html(html, base)
 
 
 def scrape():
@@ -203,11 +308,23 @@ def scrape():
             )
             page = context.new_page()
 
-            for keyword in config.KEYWORDS:
+            # Germany gets the full keyword list; Austria (same markup, same
+            # language, separate domain) gets the shorter DACH subset so the
+            # extra country doesn't double the run time.
+            searches = [
+                (label, url_tpl, base, keyword)
+                for label, url_tpl, base in config.STEPSTONE_SEARCHES
+                for keyword in (config.KEYWORDS if label == "de"
+                                else config.DACH_KEYWORDS)
+            ]
+
+            for label, url_tpl, base, keyword in searches:
                 try:
-                    results = _search_one(page, keyword)
+                    results = _search_one(page, keyword, url_tpl, base)
                 except Exception as exc:
-                    log.warning("StepStone search failed for %r: %s", keyword, exc)
+                    log.warning(
+                        "StepStone[%s] search failed for %r: %s", label, keyword, exc
+                    )
                     continue
 
                 for item in results:

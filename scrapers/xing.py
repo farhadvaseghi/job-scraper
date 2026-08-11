@@ -1,17 +1,21 @@
 """
 Scraper for Xing Jobs.
 
-IMPORTANT CAVEAT: Xing is a JS-rendered single-page app, and unlike the other
-three sources, I (the assistant that wrote this) was never able to actually
-load Xing's job search page during development -- it's blocklisted in my own
-tool environment for policy reasons, so this scraper is written from general
-knowledge of how modern job-search SPAs structure their markup (data-testid
-attributes on job cards), NOT verified against Xing's real DOM.
+Xing is a JS-rendered single-page app, so this drives Playwright/Chromium.
 
-It is very likely the CSS selectors below need adjustment after your first
-live run. Check the Actions log: if you see "Xing: 0 jobs found, selectors
-may need updating" every run, that's the signal to inspect Xing's actual
-page source (e.g. via browser devtools) and update SELECTORS below.
+VERIFIED 2026-08-11 against the live site: `[data-testid='job-search-result']`
+is the correct card selector (20 cards per search page, which is Xing's page
+size), and job links are `/jobs/<city>-<slug>-<id>`. The other selectors
+below are kept as fallbacks.
+
+DO NOT add `--disable-http2` to this browser's launch args. StepStone needs
+that flag, but on Xing it breaks the CDN fetch of the SPA runtime manifest --
+the page loads to a bare "Failed to load manifestMap" error with zero cards,
+which looks exactly like a selector problem but is not. Each scraper
+launches its own browser precisely so these flag sets stay separate.
+
+If the Actions log shows "Xing: 0 jobs found" every run, inspect the live
+page source and update CARD_SELECTOR_CANDIDATES below.
 
 Requires Playwright with Chromium installed (see requirements.txt / the
 workflow's `playwright install chromium` step).
@@ -40,7 +44,10 @@ CARD_SELECTOR_CANDIDATES = [
     "article",
 ]
 
-AGE_RE = re.compile(r"vor\s+(\d+)\s+(Stunden?|Tag(?:en)?|Wochen?)|vor\s+1\s+Woche|heute", re.IGNORECASE)
+AGE_RE = re.compile(
+    r"vor\s+(\d+)\s+(Minuten?|Stunden?|Tag(?:en)?|Wochen?)|vor\s+1\s+Woche|heute",
+    re.IGNORECASE,
+)
 
 
 def _age_to_days(text):
@@ -58,13 +65,67 @@ def _age_to_days(text):
     if not num:
         return None
     num = int(num)
-    return 0 if "Stunde" in unit else num
+    return 0 if ("Minute" in unit or "Stunde" in unit) else num
 
 
-def _search_one(page, keyword):
+def _clean(text):
+    """Collapse whitespace (incl. the non-breaking spaces Xing sprinkles in)."""
+    return re.sub(r"\s+", " ", (text or "").replace("\xa0", " ")).strip()
+
+
+# Xing appends "+ 3 weitere" to the location when a job has several sites.
+_MORE_LOCATIONS_RE = re.compile(r"\s*\+\s*\d+\s*weitere\s*$", re.IGNORECASE)
+
+
+def _card_fields(card, text):
+    """Pull (title, company, city) out of one result card.
+
+    Reads the card's STRUCTURE, not its line order. Taking lines[0..2] was
+    wrong whenever Xing prefixed a badge such as "Dringend gesucht" to the
+    card -- every field then shifted by one, so the badge became the title,
+    the title became the company and the company became the city. That also
+    quietly defeated the defense-employer filter, which only ever sees the
+    `company` field.
+    """
+    title = company = city = ""
+
+    title_el = (card.query_selector("[data-testid='job-teaser-list-title']")
+                or card.query_selector("h2")
+                or card.query_selector("h3"))
+    if title_el:
+        title = _clean(title_el.inner_text())
+
+    # company is the first <p>, location the second
+    paragraphs = [_clean(p.inner_text()) for p in card.query_selector_all("p")]
+    paragraphs = [p for p in paragraphs if p]
+    if paragraphs:
+        company = paragraphs[0]
+    if len(paragraphs) > 1:
+        city = _MORE_LOCATIONS_RE.sub("", paragraphs[1])
+
+    if title and company:
+        return title, company, city
+
+    # Fallback: line order, skipping any leading badge line that the
+    # structured lookup already told us is not the title.
+    lines = [l.strip() for l in text.split("\n") if l.strip()]
+    if title and title in lines:
+        lines = lines[lines.index(title):]
+    return (
+        title or (lines[0] if lines else ""),
+        company or (lines[1] if len(lines) > 1 else ""),
+        city or _MORE_LOCATIONS_RE.sub("", lines[2] if len(lines) > 2 else ""),
+    )
+
+
+def _search_one(page, keyword, location=None):
     from urllib.parse import urlencode
 
-    url = config.XING_SEARCH_URL + "?" + urlencode({"keywords": keyword})
+    params = {"keywords": keyword}
+    if location:
+        # Verified: location=Wien returns 21 cards, all in Vienna.
+        params["location"] = location
+    url = config.XING_SEARCH_URL + "?" + urlencode(params)
     page.goto(url, timeout=30000, wait_until="domcontentloaded")
     try:
         page.wait_for_load_state("networkidle", timeout=10000)
@@ -90,12 +151,14 @@ def _search_one(page, keyword):
             if href.startswith("/"):
                 href = "https://www.xing.com" + href
 
-            lines = [l.strip() for l in text.split("\n") if l.strip()]
-            title = lines[0] if lines else ""
-            company = lines[1] if len(lines) > 1 else ""
-            city = lines[2] if len(lines) > 2 else ""
+            title, company, city = _card_fields(card, text)
 
-            age_match = AGE_RE.search(text)
+            # The <time> element repeats itself ("Vor 4 Tagen Vor 4 Tagen
+            # veröffentlicht" -- visible label plus screen-reader text), so
+            # take just the first age phrase out of it.
+            age_el = card.query_selector("time")
+            age_source = _clean(age_el.inner_text()) if age_el else text
+            age_match = AGE_RE.search(age_source) or AGE_RE.search(text)
             raw_age = age_match.group(0) if age_match else ""
 
             results.append(
@@ -130,11 +193,23 @@ def scrape():
             browser = p.chromium.launch(headless=True)
             page = browser.new_page(user_agent=config.USER_AGENT, locale="de-DE")
 
-            for keyword in config.KEYWORDS:
+            # Default (nationwide/Germany) uses the full keyword list; the
+            # explicit Austrian/Swiss locations use the shorter DACH subset.
+            searches = [
+                (location, keyword)
+                for location in config.XING_LOCATIONS
+                for keyword in (config.KEYWORDS if location is None
+                                else config.DACH_KEYWORDS)
+            ]
+
+            for location, keyword in searches:
                 try:
-                    results = _search_one(page, keyword)
+                    results = _search_one(page, keyword, location)
                 except Exception as exc:
-                    log.warning("Xing search failed for %r: %s", keyword, exc)
+                    log.warning(
+                        "Xing search failed for %r (location=%s): %s",
+                        keyword, location or "default", exc,
+                    )
                     continue
 
                 for item in results:

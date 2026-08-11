@@ -24,9 +24,42 @@ _DEFENSE_RE = [
     for term in config.DEFENSE_COMPANIES
 ]
 
+# config.SENIORITY_EXCLUDE stays substring-matched (German compounds need it:
+# "leiter" must catch "Teamleiter"). Only the terms in
+# config.SENIORITY_EXCLUDE_WORDS get word boundaries -- see the comments there.
+_SENIORITY_WORD_RE = [
+    re.compile(r"\b" + re.escape(term.strip()) + r"\b", re.IGNORECASE)
+    for term in config.SENIORITY_EXCLUDE_WORDS
+]
+
+# Narrow false-positive guard: "Leiterplatte" (printed circuit board) starts
+# with "leiter" (manager/head) but is a hardware term, and PCB roles are
+# squarely in scope for an embedded/FPGA search. Checked before the seniority
+# terms so a "Leiterplattenentwickler" posting is not dropped as management.
+_SENIORITY_ALLOW_RE = re.compile(r"\bleiterplatt\w*", re.IGNORECASE)
+
+
+# Punctuation/decoration that differs between boards for the same posting:
+# "(m/w/d)", "(all genders)", extra whitespace, etc.
+_GENDER_TAG_RE = re.compile(
+    r"\((?:[mwdfxgn*/\s.:;+-]|all\s+genders?|divers|welcome)*\)", re.IGNORECASE
+)
+_NON_ALNUM_RE = re.compile(r"[^a-z0-9]+")
+
 
 def get_logger(name):
     return logging.getLogger(name)
+
+
+def _slug(text):
+    """Fold a string to a comparable slug: lowercase, umlauts expanded
+    (ü -> ue, so "Zürich" and "Zuerich" agree), gender tags dropped, and
+    everything else collapsed to single hyphens."""
+    text = str(text if text is not None else "").strip().lower()
+    text = (text.replace("ä", "ae").replace("ö", "oe")
+                .replace("ü", "ue").replace("ß", "ss"))
+    text = _GENDER_TAG_RE.sub(" ", text)
+    return _NON_ALNUM_RE.sub("-", text).strip("-")
 
 
 def to_text(value):
@@ -80,24 +113,32 @@ def normalize_url(url):
 
 
 def make_job(source, title, company, city, url, posted_iso_date=None, raw_age_text=""):
-    """Normalized job record used across all scrapers."""
+    """Normalized job record used across all scrapers.
+
+    Every field goes through to_text() -- this is the single chokepoint that
+    enforces invariant #2. `(title or "").strip()` was NOT enough: a pandas
+    NaN is a float and is *truthy*, so `nan or ""` yields nan and .strip()
+    raises 'float object has no attribute strip'."""
     return {
-        "source": source,
-        "title": (title or "").strip(),
-        "company": (company or "").strip(),
-        "city": (city or "").strip(),
-        "url": (url or "").strip(),
+        "source": to_text(source),
+        "title": to_text(title),
+        "company": to_text(company),
+        "city": to_text(city),
+        "url": to_text(url),
         "posted_date": posted_iso_date,  # ISO date string 'YYYY-MM-DD' or None
-        "raw_age_text": raw_age_text,
+        "raw_age_text": to_text(raw_age_text),
     }
 
 
 def passes_seniority_filter(title):
     """Drop postings that look senior/lead/management based on title text."""
+    title = to_text(title)
     if not title:
         return True
-    lowered = title.lower()
-    return not any(term in lowered for term in config.SENIORITY_EXCLUDE)
+    lowered = _SENIORITY_ALLOW_RE.sub("", title.lower())
+    if any(term in lowered for term in config.SENIORITY_EXCLUDE):
+        return False
+    return not any(rx.search(lowered) for rx in _SENIORITY_WORD_RE)
 
 
 def passes_permanent_filter(text):
@@ -127,7 +168,92 @@ def passes_company_filter(company_name):
     return not any(rx.search(lowered) for rx in _DEFENSE_RE)
 
 
+def passes_relevance_filter(title):
+    """Keep only titles that actually look like an engineering role.
+
+    The boards match loosely -- a "Softwareentwickler" search returns things
+    like "Technical Consultant" -- so without this the digest carries a lot of
+    postings that were never relevant. Stem matching, because German compounds
+    words together ("entwickl" covers Entwickler / Softwareentwicklung / ...).
+    """
+    if not config.REQUIRE_RELEVANT_TITLE:
+        return True
+    title = to_text(title)
+    if not title:
+        return False
+    lowered = title.lower()
+    return any(term in lowered for term in config.RELEVANCE_TERMS)
+
+
+def _city_target_slugs():
+    """Every accepted city spelling, umlaut-folded, built once at import."""
+    slugs = set()
+    for city in config.CITIES:
+        slugs.add(_slug(city))
+    for canonical, aliases in config.CITY_ALIASES.items():
+        slugs.add(_slug(canonical))
+        for alias in aliases:
+            slugs.add(_slug(alias))
+    return {s for s in slugs if s}
+
+
+_CITY_TARGETS = _city_target_slugs()
+_COUNTRY_ONLY = {_slug(c) for c in config.COUNTRY_ONLY_LOCATIONS}
+
+
+def _slug_has_token(haystack, needle):
+    """Whether `needle` appears in `haystack` on slug-token boundaries.
+
+    Plain substring matching is wrong here: "Bernau" and "Bernburg" are not
+    Bern, and "Essendorf" is not Essen. Boards return the city with extra
+    parts attached ("Berlin, BE, DE", "Frankfurt am Main, HE"), so we need
+    containment, just not mid-token containment.
+    """
+    return (
+        haystack == needle
+        or haystack.startswith(needle + "-")
+        or haystack.endswith("-" + needle)
+        or ("-" + needle + "-") in haystack
+    )
+
+
+def passes_city_filter(city):
+    """Keep postings in one of the target cities (plus remote / unknown).
+
+    No-ops unless config.RESTRICT_TO_CITIES is on. The city list existed for a
+    long time without anything reading it, so searches were nationwide and
+    every result was kept regardless of where it was.
+    """
+    if not config.RESTRICT_TO_CITIES:
+        return True
+    city = to_text(city)
+    if not city:
+        return True  # unknown location -- don't throw it away
+    lowered = city.lower()
+    if any(term in lowered for term in config.REMOTE_TERMS):
+        return True
+    city_slug = _slug(city)
+    # A bare country ("NL", "Deutschland") names no city at all -- treat it
+    # like an unknown location rather than a mismatch.
+    if city_slug in _COUNTRY_ONLY:
+        return True
+    return any(_slug_has_token(city_slug, target) for target in _CITY_TARGETS)
+
+
 def dedupe_key(job):
     """Stable identifier for a job posting, used for the seen-jobs store.
     Uses the normalized URL so tracking-param variations don't defeat it."""
     return f"{job['source']}::{normalize_url(job['url'])}"
+
+
+def content_key(job):
+    """Source-INDEPENDENT identity for a posting: title + company + city.
+
+    The same job is routinely listed on all four boards under four different
+    URLs, so dedupe_key alone lets it through four times. City is included so
+    two genuinely different openings with the same title at the same big
+    employer aren't collapsed into one.
+    """
+    return "content::" + "|".join(
+        _slug(job.get(field)) for field in ("title", "company", "city")
+    )

@@ -18,7 +18,7 @@ import os
 from datetime import datetime, timedelta, timezone
 
 import config
-from scrapers.common import dedupe_key, get_logger
+from scrapers.common import content_key, dedupe_key, get_logger
 
 log = get_logger("dedupe")
 
@@ -41,17 +41,47 @@ def save_seen(seen):
 
 
 def prune(seen):
-    """Drop entries older than the retention window."""
-    cutoff = datetime.now(timezone.utc) - timedelta(days=config.SEEN_RETENTION_DAYS)
+    """Drop entries older than the retention window.
+
+    Two failure modes this guards against, both of which end in a job being
+    re-sent (or the run dying outright):
+
+    * A naive (timezone-less) timestamp -- from an older version of this file
+      or a hand-edit -- raised TypeError on the `ts >= cutoff` comparison,
+      which used to sit OUTSIDE the try and so killed the whole run before
+      anything was scraped. Naive values are now assumed to be UTC.
+    * An unparseable timestamp used to be silently dropped, which forgets a
+      job and reposts it. We now KEEP it (re-stamped as of now); erring
+      toward a stale entry is strictly better than spamming the channel.
+    """
+    now = datetime.now(timezone.utc)
+    cutoff = now - timedelta(days=config.SEEN_RETENTION_DAYS)
     kept = {}
     for key, seen_at in seen.items():
         try:
-            ts = datetime.fromisoformat(seen_at)
+            ts = datetime.fromisoformat(str(seen_at))
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
         except Exception:
+            log.warning(
+                "Unparseable seen-timestamp %r for %s -- keeping the entry so "
+                "the job is not re-sent", seen_at, key,
+            )
+            kept[key] = now.isoformat()
             continue
         if ts >= cutoff:
             kept[key] = seen_at
     return kept
+
+
+def _keys_for(job):
+    """Every key a job should be remembered under: its per-source URL key,
+    plus (when enabled) a source-independent title+company+city key so the
+    same posting listed on four boards is only sent once."""
+    keys = [dedupe_key(job)]
+    if config.DEDUPE_ACROSS_SOURCES:
+        keys.append(content_key(job))
+    return keys
 
 
 def filter_new(jobs, seen):
@@ -60,10 +90,10 @@ def filter_new(jobs, seen):
     new_jobs = []
     batch_keys = set()  # also dedupes within this run
     for job in jobs:
-        key = dedupe_key(job)
-        if key in seen or key in batch_keys:
+        keys = _keys_for(job)
+        if any(k in seen or k in batch_keys for k in keys):
             continue
-        batch_keys.add(key)
+        batch_keys.update(keys)
         new_jobs.append(job)
     return new_jobs
 
@@ -72,5 +102,6 @@ def mark_seen(seen, jobs):
     """Record jobs as sent. Returns the updated dict."""
     now = datetime.now(timezone.utc).isoformat()
     for job in jobs:
-        seen[dedupe_key(job)] = now
+        for key in _keys_for(job):
+            seen[key] = now
     return seen

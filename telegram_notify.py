@@ -15,7 +15,7 @@ import time
 import requests
 
 import config
-from scrapers.common import get_logger
+from scrapers.common import get_logger, to_text
 
 log = get_logger("telegram")
 
@@ -25,37 +25,75 @@ MAX_MESSAGE_LEN = 4000  # Telegram's limit is 4096; leave margin
 
 def _escape_html(text):
     return (
-        (text or "")
+        str(text or "")
         .replace("&", "&amp;")
         .replace("<", "&lt;")
         .replace(">", "&gt;")
     )
 
 
+def _escape_attr(url):
+    """Escape a URL for use inside an href="..." attribute.
+
+    Telegram parses the message as HTML, so an unescaped '&' -- which nearly
+    every Indeed URL has (?jk=...&from=...) -- can be read as a broken entity
+    and a '"' terminates the attribute outright. Either way Telegram answers
+    400 "can't parse entities", which is NOT retryable: the source was marked
+    undelivered forever and its jobs were re-fetched and re-failed every run.
+    """
+    return _escape_html(url).replace('"', "&quot;").replace("'", "&#39;")
+
+
+# Longest a single job line may be. Telegram rejects an over-long message
+# outright, and _pack cannot split a line, so an absurd title must be cut
+# here rather than poisoning the whole message.
+MAX_LINE_LEN = 900
+
+
+def _clip(text, limit):
+    return text if len(text) <= limit else text[: limit - 1] + "…"
+
+
 def _job_lines(job):
-    title = _escape_html(job["title"])
-    company = _escape_html(job["company"])
-    city = _escape_html(job["city"])
+    """The lines for one job. Returned as a group so _pack never splits a
+    title away from its company/city line."""
+    title = _escape_html(_clip(to_text(job.get("title")) or "(untitled)", 200))
+    company = _escape_html(_clip(to_text(job.get("company")), 120))
+    city = _escape_html(_clip(to_text(job.get("city")), 80))
     meta = " - ".join(p for p in [company, city] if p)
-    age = f" ({_escape_html(job['raw_age_text'])})" if job.get("raw_age_text") else ""
-    out = [f'• <a href="{job["url"]}">{title}</a>{age}']
+    raw_age = to_text(job.get("raw_age_text"))
+    age = f" ({_escape_html(_clip(raw_age, 40))})" if raw_age else ""
+
+    url = to_text(job.get("url"))
+    if url.startswith("http"):
+        head = f'• <a href="{_escape_attr(url)}">{title}</a>{age}'
+    else:
+        # No usable link -- still worth sending, just not as an anchor.
+        head = f"• {title}{age}"
+
+    out = [_clip(head, MAX_LINE_LEN)]
     if meta:
-        out.append(f"  {meta}")
+        out.append(_clip(f"  {meta}", MAX_LINE_LEN))
     return out
 
 
-def _pack(header, body_lines):
-    """Combine a header with body lines into one or more messages, each under
-    Telegram's length limit. The header is repeated (with a "cont." marker) if
-    a single source's jobs overflow into multiple messages."""
+def _pack(header, line_groups):
+    """Combine a header with groups of body lines into messages under
+    Telegram's length limit. The header is repeated (with a "cont." marker)
+    when a source's jobs overflow into multiple messages.
+
+    Takes GROUPS rather than flat lines so one job's title and its
+    company/city line are never split across two messages.
+    """
     messages = []
     current = header
-    for line in body_lines:
-        if len(current) + len(line) + 1 > MAX_MESSAGE_LEN:
+    for group in line_groups:
+        block = "\n".join(group)
+        if len(current) + len(block) + 1 > MAX_MESSAGE_LEN and current != header:
             messages.append(current)
-            current = header + " (cont.)\n" + line
+            current = header + " (cont.)\n" + block
         else:
-            current = current + "\n" + line
+            current = current + "\n" + block
     messages.append(current)
     return messages
 
@@ -63,10 +101,7 @@ def _pack(header, body_lines):
 def format_source_messages(source, jobs):
     """Build the message list for a single source."""
     header = f"<b>{_escape_html(source)}</b> — {len(jobs)} new job(s)"
-    body = []
-    for job in jobs:
-        body.extend(_job_lines(job))
-    return _pack(header, body)
+    return _pack(header, [_job_lines(job) for job in jobs])
 
 
 def format_digest(jobs_by_source):
@@ -114,6 +149,15 @@ def _send_message(url, text):
             time.sleep(wait + 1)
             continue
 
+        if resp.status_code >= 500:
+            # Telegram-side hiccup, not our message -- worth another go.
+            log.warning(
+                "Telegram server error %s (attempt %d/%d) -- retrying",
+                resp.status_code, attempt, config.TELEGRAM_MAX_RETRIES,
+            )
+            time.sleep(config.TELEGRAM_SEND_DELAY_SECONDS * attempt)
+            continue
+
         # Any other error (bad HTML, message too long, etc.) won't be fixed
         # by retrying.
         log.error("Telegram send failed: %s %s", resp.status_code, resp.text)
@@ -121,6 +165,19 @@ def _send_message(url, text):
 
     log.error("Telegram send gave up after %d attempts", config.TELEGRAM_MAX_RETRIES)
     return False
+
+
+def send_note(text):
+    """Send a one-off operational note (e.g. "source X returned nothing").
+
+    Deliberately separate from send_digest and its return value: a note that
+    fails to send must never influence which job sources count as delivered,
+    or invariant #1 would be back in play.
+    """
+    if not config.TELEGRAM_BOT_TOKEN or not config.TELEGRAM_CHAT_ID:
+        return False
+    url = TELEGRAM_API.format(token=config.TELEGRAM_BOT_TOKEN)
+    return _send_message(url, _clip(text, MAX_MESSAGE_LEN))
 
 
 def send_digest(jobs_by_source):

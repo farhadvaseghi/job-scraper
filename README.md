@@ -1,24 +1,49 @@
-# Germany Job Scraper -> Telegram
+# Job Scraper -> Telegram (DE / NL / AT / CH)
 
 Searches Arbeitsagentur, Indeed, StepStone, and Xing for new job postings
-across Germany (junior/entry-level, full-time, permanent only -- fixed-term
-contracts and temp-staffing agency postings are filtered out, and
-defense/military employers are excluded) matching a curated set of keywords,
-and posts a digest of anything new (posted within the last 7 days, not
-already sent before) to a Telegram channel. Runs when you trigger it manually
-from the Actions tab -- no server of your own required.
+(junior/entry-level, full-time, permanent only -- fixed-term contracts and
+temp-staffing agency postings are filtered out, and defense/military employers
+are excluded) matching a curated set of keywords, and posts a digest of
+anything new (posted within the last 7 days, not already sent before) to a
+Telegram channel. Runs when you trigger it manually from the Actions tab --
+no server of your own required.
+
+## Coverage
+
+Germany plus selected big cities in the Netherlands, Austria and Switzerland.
+Not every board reaches every country, so coverage is uneven by design:
+
+| Source | DE | NL | AT | CH |
+|---|:--:|:--:|:--:|:--:|
+| Indeed (jobspy) | ✅ | ✅ | ✅ | ✅ |
+| StepStone | ✅ | — | ✅ (`stepstone.at`) | — |
+| Xing | ✅ | — | ✅ | ✅ |
+| Arbeitsagentur | ✅ | — | — | — |
+
+Results are then filtered to the city list in `config.CITIES_BY_COUNTRY`
+(remote/hybrid postings and postings with no stated city are always kept).
 
 ## What's included
 
 - `config.py` -- keywords, cities, freshness window, filters. Edit this to change what's searched for.
-- `scrapers/arbeitsagentur.py` -- uses the official public Jobsuche API. Most reliable source.
-- `scrapers/indeed.py` -- uses the `python-jobspy` library against Indeed Germany.
+- `scrapers/arbeitsagentur.py` -- uses the official public Jobsuche API (Germany only). Note it serves the **v6** schema; the field names differ completely from v4.
+- `scrapers/indeed.py` -- uses the `python-jobspy` library against Indeed DE/NL/AT/CH.
 - `scrapers/stepstone.py` -- scrapes StepStone via a real headless browser (Playwright). StepStone hangs plain HTTP requests from datacenter IPs, so a real browser is needed to get results.
 - `scrapers/xing.py` -- Playwright-driven scraper for Xing (JS-rendered site). Check the Actions log after a run; if it reports 0 Xing jobs every time, the selectors likely need a small update.
 - `dedupe.py` -- tracks which postings were already sent, so you don't get duplicates. Job URLs are normalized (tracking `utm_*` params stripped) so the same posting isn't re-sent when its tracking tags change, and postings are remembered for `SEEN_RETENTION_DAYS` (60) so long-lived listings aren't re-sent.
 - `telegram_notify.py` -- sends the digest to your Telegram channel via the Bot API, as one message per source (Arbeitsagentur, Indeed, StepStone, Xing each arrive separately).
-- `main.py` -- runs everything, with each source isolated so one breaking doesn't stop the others.
+- `main.py` -- runs everything, with each source isolated so one breaking doesn't stop the others. Also applies the relevance and city filters, and posts a health note if any source returned nothing.
+- `tests/test_logic.py` -- offline tests for the filters, dedup store and Telegram formatting. Run with `python -m unittest discover -s tests -v`.
 - `.github/workflows/job_scraper.yml` -- runs the scraper. Manual trigger only (no automatic schedule); re-add a `schedule:` block here if you want automatic runs.
+
+## Cutting down the volume
+
+Four knobs in `config.py`, in rough order of impact:
+
+- `RESTRICT_TO_CITIES` (default **on**) -- drop postings outside `CITIES_BY_COUNTRY`. Remote/hybrid and unknown-location postings are kept.
+- `REQUIRE_RELEVANT_TITLE` (default **on**) -- the title must contain an engineering stem from `RELEVANCE_TERMS`. The boards match loosely; a "Softwareentwickler" search happily returns "Technical Consultant".
+- `DEDUPE_ACROSS_SOURCES` (default **on**) -- the same posting listed on several boards under different URLs is sent once, not four times.
+- `MAX_AGE_DAYS` (7) and `MAX_JOBS_PER_SOURCE_PER_RUN` (60) -- narrow the window, or spread a big backlog over more runs.
 
 ## One-time setup
 
@@ -34,7 +59,8 @@ from the Actions tab -- no server of your own required.
 
 ## Adjusting things later
 
-- **Keywords / cities**: edit the lists in `config.py`, commit, push.
+- **Keywords / cities**: edit the lists in `config.py`, commit, push. `KEYWORDS` is used for the German searches; `DACH_KEYWORDS` (Austria/Switzerland) and `INTERNATIONAL_KEYWORDS` (Netherlands) are smaller subsets, kept short so the run doesn't hit the workflow timeout.
+- **Countries**: `INDEED_COUNTRIES`, `STEPSTONE_SEARCHES` and `XING_LOCATIONS` in `config.py`.
 - **Automatic runs**: the workflow is manual-trigger only. To run it on a schedule, add a `schedule:` block with a `cron` line to `.github/workflows/job_scraper.yml` (times are UTC).
 - **Freshness window**: change `MAX_AGE_DAYS` in `config.py`.
 - **Permanent-only filter**: edit `TEMP_AGENCY_TERMS` in `config.py` to add more staffing-agency names you keep seeing slip through. The fixed-term ("befristet") exclusion is handled separately in `scrapers/common.py` and doesn't need editing.
@@ -43,4 +69,4 @@ from the Actions tab -- no server of your own required.
 
 ## Costs
 
-Free. GitHub Actions' free tier includes 2,000 minutes/month for private repos (unlimited for public repos) -- each run takes a few minutes, well within that.
+Free. GitHub Actions' free tier includes 2,000 minutes/month for private repos (unlimited for public repos). A full run is ~215 searches across four sources and four countries and takes roughly 20-30 minutes, so budget accordingly on a private repo.

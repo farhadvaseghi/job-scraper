@@ -3,19 +3,37 @@ Scraper for the official Bundesagentur fuer Arbeit (Arbeitsagentur) Jobsuche
 API. This is a genuine public API (not scraping) -- see
 https://jobsuche.api.bund.dev/ and https://github.com/bundesAPI/jobsuche-api
 
-Field names per the published openapi.yaml:
-  stellenangebote[].beruf, .refnr (v6: .referenznummer), .arbeitgeber,
-  .aktuelleVeroeffentlichungsdatum, .arbeitsort.ort, .arbeitsort.plz
-The `veroeffentlichtseit` param filters server-side by days-since-published,
-so we don't need to compute freshness client-side for this source.
+ENDPOINT FALLBACK: every `/pc/v4*` and `/pc/v5` path now answers
+"403 No match found", which is an API-gateway routing error (the path no
+longer resolves), not an auth failure -- it happens even with no optional
+params at all. Only `/pc/v6/jobs` still responds. We try the endpoints in
+config.ARBEITSAGENTUR_API_URLS in order and remember whichever one answers.
 
-ENDPOINT FALLBACK: `/pc/v4/app/jobs` began answering "403 No match found",
-which is an API-gateway routing error (the path no longer resolves), not an
-auth failure -- it happened even with no optional params at all. So we try the
-endpoints in config.ARBEITSAGENTUR_API_URLS in order and remember whichever
-one answers, instead of assuming a single fixed path.
+SCHEMA: v6 renamed *every* field this scraper reads, and because the old
+names simply came back missing the source silently collected 0 jobs on every
+run while still logging success. Both shapes are handled via the _pick /
+_v6_* helpers below:
+
+  | meaning   | v4                             | v6                              |
+  |-----------|--------------------------------|---------------------------------|
+  | list      | stellenangebote                | ergebnisliste                   |
+  | id        | refnr                          | referenznummer                  |
+  | title     | beruf / titel                  | stellenangebotsTitel            |
+  | employer  | arbeitgeber                    | firma                           |
+  | city      | arbeitsort.ort                 | stellenlokationen[0].adresse.ort|
+  | published | aktuelleVeroeffentlichungsdatum| datumErsteVeroeffentlichung     |
+
+v6 also exposes `vertragsdauer` (UNBEFRISTET / BEFRISTET), which is a far
+more reliable permanent-role signal than text matching, so it is used as an
+extra gate when present.
+
+The `veroeffentlichtseit` param filters server-side by days-since-published,
+so we don't need to compute freshness client-side for this source. `size` is
+capped at 100 by the API, so results are paginated up to
+config.ARBEITSAGENTUR_MAX_PAGES.
 """
 import time
+from urllib.parse import quote
 
 import requests
 
@@ -47,8 +65,7 @@ _BASE_PARAMS = {
     "angebotsart": 1,  # ARBEIT (excludes Ausbildung/Praktikum/Selbstaendigkeit)
     "veroeffentlichtseit": config.MAX_AGE_DAYS,
     "arbeitszeit": "vz",  # Vollzeit (full-time)
-    "size": 100,
-    "page": 1,
+    "size": 100,  # API hard-caps this at 100 regardless of what we ask for
 }
 
 # Extra server-side filter for permanent roles. Applied ON TOP of the base
@@ -63,6 +80,49 @@ _STRICT_PARAMS = {
 
 # Remembered across calls once we find an endpoint that answers.
 _working_url = None
+
+# Set to False for the rest of the run if the server rejects _STRICT_PARAMS,
+# so we stop paying for a doomed extra request on every page of every keyword.
+_strict_supported = True
+
+
+def _pick(item, *names):
+    """First non-empty value among `names`, so v4 and v6 field names can both
+    be read without branching on which endpoint answered."""
+    for name in names:
+        value = to_text(item.get(name))
+        if value:
+            return value
+    return ""
+
+
+def _v6_city(item):
+    """v6: stellenlokationen[0].adresse.ort -- v4: arbeitsort.ort."""
+    for lokation in item.get("stellenlokationen") or []:
+        if isinstance(lokation, dict):
+            city = to_text((lokation.get("adresse") or {}).get("ort"))
+            if city:
+                return city
+    return to_text((item.get("arbeitsort") or {}).get("ort"))
+
+
+def _v6_published(item):
+    """ISO 'YYYY-MM-DD' publication date across both schema versions."""
+    direct = _pick(item, "datumErsteVeroeffentlichung",
+                   "aktuelleVeroeffentlichungsdatum")
+    if direct:
+        return direct[:10]
+    zeitraum = item.get("veroeffentlichungszeitraum") or {}
+    return to_text(zeitraum.get("von"))[:10]
+
+
+def _results_of(data):
+    """v6 returns `ergebnisliste`, v4 returned `stellenangebote`."""
+    for key in ("ergebnisliste", "stellenangebote"):
+        results = data.get(key)
+        if isinstance(results, list):
+            return results
+    return []
 
 
 def _request(url, params):
@@ -100,19 +160,55 @@ def _try_endpoints(params):
     return None
 
 
+def _fetch_page(keyword, page):
+    """One page of results, degrading to the non-strict param set if the
+    server refuses the strict one."""
+    global _strict_supported
+
+    base = dict(_BASE_PARAMS, was=keyword, page=page)
+
+    if _strict_supported:
+        # Attempt 1: with the strict server-side permanent filter.
+        data = _try_endpoints(dict(base, **_STRICT_PARAMS))
+        if data is not None:
+            return data
+        log.info(
+            "Arbeitsagentur: server refused the 'befristung' filter -- "
+            "falling back to client-side permanent filtering for this run"
+        )
+        _strict_supported = False
+
+    # Attempt 2: without it -- permanent/temp/defense filtering still happens
+    # client-side, so we lose nothing but a little bandwidth.
+    return _try_endpoints(base)
+
+
 def _search_one(keyword):
-    base = dict(_BASE_PARAMS, was=keyword)
+    """All pages of results for one keyword, up to the page cap."""
+    items = []
 
-    # Attempt 1: with the strict server-side permanent filter.
-    data = _try_endpoints(dict(base, **_STRICT_PARAMS))
-    if data is None:
-        # Attempt 2: without it -- permanent/temp/defense filtering still
-        # happens client-side, so we lose nothing but a little bandwidth.
-        data = _try_endpoints(base)
-    if data is None:
-        raise RuntimeError("all Arbeitsagentur endpoints refused the request")
+    for page in range(1, config.ARBEITSAGENTUR_MAX_PAGES + 1):
+        data = _fetch_page(keyword, page)
+        if data is None:
+            if page == 1:
+                raise RuntimeError("all Arbeitsagentur endpoints refused the request")
+            log.debug("Arbeitsagentur: page %d of %r refused, keeping earlier pages",
+                      page, keyword)
+            break
 
-    return data.get("stellenangebote", []) or []
+        batch = _results_of(data)
+        if not batch:
+            break
+        items.extend(batch)
+
+        total = data.get("maxErgebnisse")
+        if isinstance(total, int) and len(items) >= total:
+            break
+        if len(batch) < _BASE_PARAMS["size"]:
+            break  # short page => that was the last one
+        time.sleep(config.REQUEST_DELAY_SECONDS)
+
+    return items
 
 
 def scrape():
@@ -129,15 +225,23 @@ def scrape():
             continue
 
         for item in results:
-            # v4 calls it refnr, v6 calls it referenznummer
-            refnr = item.get("refnr") or item.get("referenznummer")
+            if not isinstance(item, dict):
+                continue
+
+            # v4 called it refnr, v6 calls it referenznummer
+            refnr = _pick(item, "referenznummer", "refnr")
             if not refnr or refnr in seen_refnr:
                 continue
             seen_refnr.add(refnr)
 
-            title = to_text(item.get("beruf")) or to_text(item.get("titel"))
-            employer = to_text(item.get("arbeitgeber"))
+            title = _pick(item, "stellenangebotsTitel", "beruf", "titel", "hauptberuf")
+            employer = _pick(item, "firma", "arbeitgeber")
+            if not title:
+                continue
             if not passes_seniority_filter(title):
+                continue
+            # v6 states the contract duration outright -- trust it over text
+            if _pick(item, "vertragsdauer").upper() == "BEFRISTET":
                 continue
             # belt-and-suspenders on top of the befristung API param -- catches
             # temp-agency employer names the server filter itself might miss
@@ -146,11 +250,15 @@ def scrape():
             if not passes_company_filter(employer):
                 continue
 
-            arbeitsort = item.get("arbeitsort") or {}
-            city = to_text(arbeitsort.get("ort"))
-            posted = item.get("aktuelleVeroeffentlichungsdatum")  # 'YYYY-MM-DD'
+            city = _v6_city(item)
+            posted = _v6_published(item)  # 'YYYY-MM-DD' or ''
 
-            url = f"https://www.arbeitsagentur.de/jobsuche/jobdetail/{refnr}"
+            # refnrs contain '.', '_' and '-'; quote so an odd one can't
+            # break out of the path segment
+            url = (
+                "https://www.arbeitsagentur.de/jobsuche/jobdetail/"
+                + quote(refnr, safe="")
+            )
 
             jobs.append(
                 make_job(
@@ -159,8 +267,8 @@ def scrape():
                     company=employer,
                     city=city,
                     url=url,
-                    posted_iso_date=posted,
-                    raw_age_text=posted or "",
+                    posted_iso_date=posted or None,
+                    raw_age_text=posted,
                 )
             )
 

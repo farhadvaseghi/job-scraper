@@ -16,7 +16,7 @@ import sys
 import config
 import dedupe
 import telegram_notify
-from scrapers.common import get_logger
+from scrapers.common import get_logger, passes_city_filter, passes_relevance_filter
 from scrapers import arbeitsagentur, indeed, stepstone, xing
 
 log = get_logger("main")
@@ -32,20 +32,44 @@ SOURCES = [
 def run():
     all_jobs = []
     failed_sources = []
+    collected = {}
 
     for name, scrape_fn in SOURCES:
         log.info("Running scraper: %s", name)
         try:
             jobs = scrape_fn()
+            collected[name] = len(jobs)
             all_jobs.extend(jobs)
         except Exception as exc:
             log.error("Source %s crashed entirely: %s", name, exc)
+            collected[name] = 0
             failed_sources.append(name)
 
+    log.info(
+        "Collected per source: %s",
+        ", ".join(f"{name}={collected.get(name, 0)}" for name, _ in SOURCES),
+    )
     log.info("Total jobs collected across all sources: %d", len(all_jobs))
 
+    # Relevance / location gates, applied here rather than in each scraper so
+    # all four sources are filtered identically and the drop counts are
+    # visible in one place. Both are configurable in config.py.
+    relevant = [j for j in all_jobs if passes_relevance_filter(j["title"])]
+    if len(relevant) != len(all_jobs):
+        log.info(
+            "Relevance filter dropped %d off-topic title(s), %d left",
+            len(all_jobs) - len(relevant), len(relevant),
+        )
+
+    located = [j for j in relevant if passes_city_filter(j["city"])]
+    if len(located) != len(relevant):
+        log.info(
+            "City filter dropped %d posting(s) outside the target cities, %d left",
+            len(relevant) - len(located), len(located),
+        )
+
     seen = dedupe.prune(dedupe.load_seen())
-    new_jobs = dedupe.filter_new(all_jobs, seen)
+    new_jobs = dedupe.filter_new(located, seen)
     log.info("New (unseen) jobs this run: %d", len(new_jobs))
 
     # group by source, applying the per-run cap so a huge batch doesn't flood
@@ -79,6 +103,26 @@ def run():
     dedupe.mark_seen(seen, sent_jobs)
     dedupe.save_seen(seen)
     log.info("Marked %d delivered job(s) as seen", len(sent_jobs))
+
+    # Tell the channel when a source produced nothing. A source that quietly
+    # returns 0 looks identical to "no new jobs today" in the digest, which is
+    # how the Arbeitsagentur scraper went on reading v4 field names against a
+    # v6 response -- collecting zero on every run -- without anyone noticing.
+    # Sent last and its result ignored, so it cannot affect dedup accounting.
+    dead = [name for name, _ in SOURCES if not collected.get(name)]
+    if dead:
+        detail = ", ".join(
+            f"{name}{' (crashed)' if name in failed_sources else ''}"
+            for name in dead
+        )
+        log.warning("Sources that returned nothing this run: %s", detail)
+        try:
+            telegram_notify.send_note(
+                f"⚠️ <b>Scraper health</b>: no results from {detail}. "
+                f"Check the Actions log."
+            )
+        except Exception as exc:  # never let the note break the run
+            log.warning("Could not send the health note: %s", exc)
 
     if not ok:
         log.error("Telegram send reported failures -- check logs above")

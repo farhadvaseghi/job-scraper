@@ -68,14 +68,116 @@ KEYWORD_GROUPS = {
 
 KEYWORDS = [kw for group in KEYWORD_GROUPS.values() for kw in group]
 
+# Keywords used OUTSIDE the German-speaking market. The German compound terms
+# ("Automatisierungsingenieur", "Softwareentwickler", ...) return essentially
+# nothing on Indeed Netherlands, and every extra keyword is another slow
+# request -- 32 keywords x 4 countries would risk the workflow timeout. Dutch
+# tech postings are overwhelmingly written in English, so the English subset
+# is what actually pays off there.
+INTERNATIONAL_KEYWORDS = [
+    "Embedded Software Engineer",
+    "Firmware Engineer",
+    "Robotics Software Engineer",
+    "Computer Vision Engineer",
+    "Machine Learning Engineer",
+    "Sensor Fusion Engineer",
+    "Test Automation Engineer",
+    "FPGA Engineer",
+    "Software Engineer",
+    "Python Developer",
+    "Automation Engineer",
+]
+
+# Keywords for the SECONDARY German-speaking searches (Austria, Switzerland).
+# German terms belong here -- unlike in the Netherlands, they are the
+# highest-yield queries in AT/CH -- but the full 32 would multiply the run
+# time past the workflow timeout, so this is the high-value subset.
+DACH_KEYWORDS = [
+    "Softwareentwickler",
+    "Embedded Software Engineer",
+    "Embedded Softwareentwickler",
+    "Firmware Engineer",
+    "Robotics Engineer",
+    "Computer Vision Engineer",
+    "Machine Learning Engineer",
+    "Automotive Software Engineer",
+    "Test Automation Engineer",
+    "Testautomatisierung",
+    "FPGA Engineer",
+    "Software Engineer",
+    "Python Developer",
+    "Automatisierungsingenieur",
+]
+
+# Which Indeed country domains to search. jobspy resolves these to the right
+# Indeed subdomain (de / nl / at / ch) -- verified present in its Country enum.
+INDEED_COUNTRIES = ["Germany", "Netherlands", "Austria", "Switzerland"]
+
+# Xing is a DACH network -- no meaningful Netherlands coverage, so it is
+# searched for the German-speaking countries only. None = nationwide default
+# (Germany); the named locations are verified to work as a `location` query
+# param (location=Wien returned 21 cards, all in Vienna).
+XING_LOCATIONS = [None, "Wien", "Zürich"]
+
 # ---------------------------------------------------------------------------
 # Cities -- main big German cities. Used to tag/filter results; searches
 # themselves are run nationwide ("Deutschland") per keyword for efficiency,
 # since every listing already carries its own city in the response.
 # ---------------------------------------------------------------------------
-CITIES = [
-    "Berlin", "Hamburg", "München", "Köln", "Frankfurt am Main", "Stuttgart",
-    "Düsseldorf", "Dortmund", "Essen", "Leipzig", "Nürnberg", "Erlangen",
+CITIES_BY_COUNTRY = {
+    "Germany": [
+        "Berlin", "Hamburg", "München", "Köln", "Frankfurt am Main",
+        "Stuttgart", "Düsseldorf", "Dortmund", "Essen", "Leipzig",
+        "Nürnberg", "Erlangen",
+    ],
+    "Netherlands": [
+        "Amsterdam", "Rotterdam", "Den Haag", "Utrecht", "Eindhoven",
+        "Delft", "Groningen",
+    ],
+    "Austria": [
+        "Wien", "Graz", "Linz", "Salzburg", "Innsbruck",
+    ],
+    "Switzerland": [
+        "Zürich", "Genf", "Basel", "Bern", "Lausanne", "Zug", "Winterthur",
+    ],
+}
+
+CITIES = [city for cities in CITIES_BY_COUNTRY.values() for city in cities]
+
+# Alternate spellings for the same place. Job boards disagree on language --
+# Indeed Switzerland says "Zurich", Xing says "Zürich"; Dutch boards say
+# "Den Haag", English ones "The Hague". Keys are the canonical entry above
+# (matched after umlaut folding: ü->ue), values are extra spellings to accept.
+CITY_ALIASES = {
+    "München": ["Munich", "Muenchen"],
+    "Köln": ["Cologne", "Koeln"],
+    "Nürnberg": ["Nuremberg", "Nuernberg"],
+    "Frankfurt am Main": ["Frankfurt"],
+    "Wien": ["Vienna"],
+    "Zürich": ["Zurich", "Zuerich"],
+    "Genf": ["Geneva", "Genève", "Geneve"],
+    "Den Haag": ["The Hague", "'s-Gravenhage", "s-Gravenhage"],
+}
+
+# Whether the city list is actually ENFORCED. For a long time it was not: the
+# list existed but nothing read it, so a nationwide search returned every
+# village in Germany. Postings with no city at all, or that look remote, are
+# always kept regardless.
+RESTRICT_TO_CITIES = True
+
+REMOTE_TERMS = [
+    "remote", "home office", "homeoffice", "hybrid",
+    "deutschlandweit", "thuiswerken", "telearbeit",
+]
+
+# Location values that name a country rather than a city. Indeed returns a
+# bare "NL" / "DE" for nationwide postings; those are effectively
+# unknown-location and are kept rather than dropped by the city filter.
+COUNTRY_ONLY_LOCATIONS = [
+    "de", "nl", "at", "ch",
+    "deutschland", "germany", "nederland", "netherlands", "the netherlands",
+    "oesterreich", "österreich", "austria",
+    "schweiz", "switzerland", "suisse",
 ]
 
 # ---------------------------------------------------------------------------
@@ -84,9 +186,21 @@ CITIES = [
 # dropped. INCLUDE terms are informational only (most junior roles simply
 # don't say "junior" in the title, so we don't require a match).
 # ---------------------------------------------------------------------------
+# Matched as SUBSTRINGS. That is deliberate and necessary for German, which
+# glues words together: "leiter" has to match "Teamleiter" / "Projektleiter"
+# / "Abteilungsleiter", none of which have a word boundary before "leiter".
 SENIORITY_EXCLUDE = [
-    "senior", "lead ", "principal", "head of", "director", "manager",
+    "senior", "principal", "head of", "director", "manager",
     "leiter", "leitung", "erfahrung von mindestens", "expert",
+]
+
+# Matched as WHOLE WORDS instead. Only for terms where substring matching
+# would produce false positives: plain "lead" hits "misleading". This used to
+# be written as "lead " (trailing space) in the list above, which dodged
+# "misleading" but then missed every title ENDING in the word -- "Team Lead"
+# and "Tech Lead" both sailed through the filter.
+SENIORITY_EXCLUDE_WORDS = [
+    "lead",
 ]
 
 # ---------------------------------------------------------------------------
@@ -123,6 +237,15 @@ TEMP_AGENCY_TERMS = [
     "argo personal",
     "unique personal",
     "i.k. hofmann",
+    # Dutch equivalents -- without these the permanent-only filter is a no-op
+    # on Netherlands results, where staffing agencies are very common.
+    "uitzendbureau",
+    "uitzendkracht",
+    "detachering",
+    "detacheringsbureau",
+    "payrolling",
+    "tijdelijk contract",
+    "bepaalde tijd",
 ]
 
 # ---------------------------------------------------------------------------
@@ -163,6 +286,46 @@ DEFENSE_COMPANIES = [
     "defense systems",
     "military systems",
 ]
+
+# ---------------------------------------------------------------------------
+# Relevance gate
+#
+# The job boards match loosely: searching "Softwareentwickler" also returns
+# "Technical Consultant", "Vertriebsmitarbeiter", and similar. A posting is
+# kept only if its TITLE contains at least one of these stems, which is the
+# single biggest reduction in noise per line of code.
+#
+# Stems, not whole words -- German glues words together, so "entwickl"
+# catches Entwickler / Entwicklerin / Softwareentwicklung / Entwicklungs-.
+# Set REQUIRE_RELEVANT_TITLE = False to accept whatever the boards return.
+# ---------------------------------------------------------------------------
+REQUIRE_RELEVANT_TITLE = True
+
+RELEVANCE_TERMS = [
+    # generic engineering / dev
+    "software", "entwickl", "developer", "engineer", "ingenieur", "informatik",
+    "programmier", "coder",
+    # the specific areas from the resume
+    "embedded", "firmware", "hardware", "robot", "autonom", "slam",
+    "computer vision", "machine learning", "deep learning", "ki-", " ai ",
+    "data scien", "datenanalyse", "adas", "sensor", "dsp", "signal",
+    "fpga", "rtl", "vhdl", "verilog", "asic", "digital design",
+    "test", "qa", "quality", "validierung", "verifikation",
+    "automation", "automatisierung", "plc", "sps", "steuerung", "mechatronik",
+    # common languages/stacks that identify a dev role
+    "python", "c++", "java", "matlab", "linux", "devops", "backend",
+    "frontend", "full-stack", "fullstack",
+]
+
+# ---------------------------------------------------------------------------
+# Cross-source duplicates
+#
+# The same posting is routinely listed on all four boards under four
+# different URLs, so URL-based dedup alone sends it up to four times. When
+# this is on, a second sighting of the same (title, company, city) is
+# suppressed no matter which source it came from.
+# ---------------------------------------------------------------------------
+DEDUPE_ACROSS_SOURCES = True
 
 # ---------------------------------------------------------------------------
 # Freshness window
@@ -211,9 +374,13 @@ SEEN_JOBS_FILE = os.path.join(STATE_DIR, "seen_jobs.json")
 
 # Arbeitsagentur Jobsuche API (official, public).
 # Tried in order until one responds 200 -- the endpoint that works is then
-# reused for the rest of the run. `/pc/v4/app/jobs` started returning
-# "403 No match found" (an API-gateway routing error, not an auth problem),
-# so the currently-documented `/pc/v6/jobs` is tried first.
+# reused for the rest of the run. Verified 2026-08-11: ONLY `/pc/v6/jobs`
+# answers; every v4 and v5 path returns "403 No match found" (an API-gateway
+# routing error, not an auth problem). The dead paths are kept as a fallback
+# chain purely in case the gateway routing changes back.
+# NOTE: v6 uses different field names than v4 -- see the table in
+# scrapers/arbeitsagentur.py. Reading v4 names against v6 yields 0 jobs
+# silently, which is exactly the bug that fallback chain was hiding.
 ARBEITSAGENTUR_API_URLS = [
     "https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v6/jobs",
     "https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v5/jobs",
@@ -224,9 +391,26 @@ ARBEITSAGENTUR_API_URLS = [
 ARBEITSAGENTUR_API_URL = ARBEITSAGENTUR_API_URLS[0]
 ARBEITSAGENTUR_CLIENT_ID = "jobboerse-jobsuche"
 
+# The API hard-caps `size` at 100 results per page, and a broad keyword can
+# match several hundred. Fetch up to this many pages per keyword before
+# moving on (3 x 100 = 300, comfortably above the busiest keyword observed).
+ARBEITSAGENTUR_MAX_PAGES = 3
+
 # Indeed / StepStone search bases
 INDEED_SEARCH_URL = "https://de.indeed.com/jobs"
 STEPSTONE_SEARCH_URL = "https://www.stepstone.de/jobs/{slug}/in-deutschland"
+
+# StepStone runs a separate domain per country. Austria was verified to behave
+# exactly like Germany (same `data-at` card markup, same `?ag=age_7` filter,
+# 25 cards in 4s). There is no StepStone Netherlands or Switzerland, so those
+# two countries are covered by Indeed only.
+# Each entry: (label, search-URL template, base URL for relative links)
+STEPSTONE_SEARCHES = [
+    ("de", "https://www.stepstone.de/jobs/{slug}/in-deutschland",
+     "https://www.stepstone.de"),
+    ("at", "https://www.stepstone.at/jobs/{slug}/in-oesterreich",
+     "https://www.stepstone.at"),
+]
 
 # Xing search base (Playwright-driven, best-effort -- see scrapers/xing.py)
 XING_SEARCH_URL = "https://www.xing.com/jobs/search"

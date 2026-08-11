@@ -19,7 +19,10 @@ concurrency:
 jobs:
   scrape-and-notify:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    # Raised from 40: the run now covers Germany plus Netherlands, Austria and
+    # Switzerland (Indeed x4 countries, StepStone .de + .at, Xing x3
+    # locations), which roughly doubles the number of searches.
+    timeout-minutes: 60
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
