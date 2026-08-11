@@ -137,7 +137,21 @@ def _search_one(page, keyword):
     # age_7 = only postings from the last 7 days (server-side freshness filter)
     full_url = url + "?action=facet_selected%3Bage%3Bage_7&ag=age_7"
 
-    page.goto(full_url, timeout=30000, wait_until="domcontentloaded")
+    # StepStone sometimes kills the first connection outright
+    # (ERR_HTTP2_PROTOCOL_ERROR / ERR_CONNECTION_RESET) as an anti-bot
+    # measure; a retry after a short pause usually goes through.
+    last_exc = None
+    for attempt in range(1, 4):
+        try:
+            page.goto(full_url, timeout=45000, wait_until="domcontentloaded")
+            break
+        except Exception as exc:
+            last_exc = exc
+            log.debug("StepStone goto attempt %d failed for %r: %s", attempt, keyword, exc)
+            time.sleep(2 * attempt)
+    else:
+        raise last_exc
+
     try:
         page.wait_for_load_state("networkidle", timeout=10000)
     except Exception:
@@ -160,8 +174,34 @@ def scrape():
 
     try:
         with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            page = browser.new_page(user_agent=config.USER_AGENT, locale="de-DE")
+            # --disable-http2 is the important one: StepStone was tearing down
+            # every request with ERR_HTTP2_PROTOCOL_ERROR within ~30ms, which
+            # is a protocol-level bot rejection rather than a real network
+            # fault. Forcing HTTP/1.1 sidesteps it. The other flags remove the
+            # most obvious headless-automation tells.
+            browser = p.chromium.launch(
+                headless=True,
+                args=[
+                    "--disable-http2",
+                    "--disable-blink-features=AutomationControlled",
+                    "--no-sandbox",
+                    "--disable-dev-shm-usage",
+                ],
+            )
+            context = browser.new_context(
+                user_agent=config.USER_AGENT,
+                locale="de-DE",
+                viewport={"width": 1920, "height": 1080},
+                extra_http_headers={
+                    "Accept-Language": "de-DE,de;q=0.9,en;q=0.8",
+                    "Accept": (
+                        "text/html,application/xhtml+xml,application/xml;q=0.9,"
+                        "image/avif,image/webp,*/*;q=0.8"
+                    ),
+                    "Upgrade-Insecure-Requests": "1",
+                },
+            )
+            page = context.new_page()
 
             for keyword in config.KEYWORDS:
                 try:
