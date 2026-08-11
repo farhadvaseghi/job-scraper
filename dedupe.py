@@ -3,8 +3,10 @@ Dedup store: tracks which job postings have already been sent to Telegram,
 so reruns don't repost. Persisted as a JSON file that the GitHub Actions
 workflow commits back to the repo after each run (see the workflow file).
 
-Entries older than 2x the freshness window are pruned automatically so the
-file doesn't grow forever.
+Entries older than config.SEEN_RETENTION_DAYS are pruned automatically so the
+file doesn't grow forever. Keys use the NORMALIZED job URL (see
+scrapers/common.normalize_url) so a posting isn't re-sent just because its
+tracking (utm_*) params changed between runs.
 """
 import json
 import os
@@ -36,7 +38,7 @@ def save_seen(seen):
 def filter_new_and_update(jobs, seen):
     """Returns (new_jobs, updated_seen_dict). Also prunes stale entries."""
     now = datetime.now(timezone.utc)
-    cutoff = now - timedelta(days=config.MAX_AGE_DAYS * 2)
+    cutoff = now - timedelta(days=config.SEEN_RETENTION_DAYS)
 
     # prune
     pruned = {}
