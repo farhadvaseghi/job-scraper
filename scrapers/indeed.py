@@ -15,6 +15,7 @@ from scrapers.common import (
     passes_company_filter,
     passes_permanent_filter,
     passes_seniority_filter,
+    to_text,
 )
 
 log = get_logger("indeed")
@@ -49,48 +50,52 @@ def scrape():
             continue
 
         for item in results:
-            url = item.get("job_url") or item.get("job_url_direct") or ""
-            if not url or url in seen_urls:
-                continue
-            seen_urls.add(url)
+            # NB: jobspy returns a pandas DataFrame -> dict, so empty cells are
+            # NaN floats, not "". to_text() normalizes those; the per-item
+            # try/except means one malformed row can never crash the whole
+            # source (which is exactly the 'float has no attribute lower' bug
+            # that used to take Indeed down entirely).
+            try:
+                url = to_text(item.get("job_url")) or to_text(item.get("job_url_direct"))
+                if not url or url in seen_urls:
+                    continue
+                seen_urls.add(url)
 
-            title = item.get("title", "")
-            company = item.get("company", "")
-            if not passes_seniority_filter(title):
-                continue
-            if not passes_permanent_filter(f"{title} {company}"):
-                continue
-            if not passes_company_filter(company):
-                continue
-            # JobSpy's structured job_type field ('fulltime', 'contract', etc.)
-            # -- 'contract'/'temporary' is Indeed's closest equivalent to
-            # "befristet"/fixed-term, so treat it the same as the text filter
-            job_type = item.get("job_type")
-            if job_type:
-                job_type_str = str(job_type).lower()
-                if "contract" in job_type_str or "temporary" in job_type_str:
+                title = to_text(item.get("title"))
+                company = to_text(item.get("company"))
+                if not title or not passes_seniority_filter(title):
+                    continue
+                if not passes_permanent_filter(f"{title} {company}"):
+                    continue
+                if not passes_company_filter(company):
+                    continue
+                # JobSpy's structured job_type field ('fulltime', 'contract', etc.)
+                # -- 'contract'/'temporary' is Indeed's closest equivalent to
+                # "befristet"/fixed-term, so treat it the same as the text filter
+                job_type = to_text(item.get("job_type")).lower()
+                if "contract" in job_type or "temporary" in job_type:
                     continue
 
-            city = item.get("location", "") or ""
-            date_posted = item.get("date_posted")  # date object or NaT/None
-            posted_iso = None
-            try:
-                if date_posted and str(date_posted) != "NaT":
-                    posted_iso = str(date_posted)[:10]
-            except Exception:
+                city = to_text(item.get("location"))
                 posted_iso = None
+                date_posted = to_text(item.get("date_posted"))  # '' if NaN/NaT
+                if date_posted and date_posted != "NaT":
+                    posted_iso = date_posted[:10]
 
-            jobs.append(
-                make_job(
-                    source="Indeed",
-                    title=title,
-                    company=item.get("company", ""),
-                    city=city,
-                    url=url,
-                    posted_iso_date=posted_iso,
-                    raw_age_text=posted_iso or "",
+                jobs.append(
+                    make_job(
+                        source="Indeed",
+                        title=title,
+                        company=company,
+                        city=city,
+                        url=url,
+                        posted_iso_date=posted_iso,
+                        raw_age_text=posted_iso or "",
+                    )
                 )
-            )
+            except Exception as exc:
+                log.warning("Indeed: skipped a malformed record: %s", exc)
+                continue
 
         time.sleep(config.REQUEST_DELAY_SECONDS)
 
