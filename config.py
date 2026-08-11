@@ -181,6 +181,18 @@ SEEN_RETENTION_DAYS = 60
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 
+# Telegram rate-limits bots to roughly 20 messages/minute per channel. A large
+# run can produce dozens of messages, so pace them out (4s ~= 15/min) and retry
+# when Telegram explicitly asks us to wait (HTTP 429 retry_after).
+TELEGRAM_SEND_DELAY_SECONDS = 4.0
+TELEGRAM_MAX_RETRIES = 6
+
+# Safety cap on how many jobs to send per source in a single run. The first run
+# after a fix can surface hundreds of postings at once; sending them all would
+# flood the channel and hit rate limits. Anything over the cap is simply left
+# unseen and picked up on the next run. Set to 0 to disable the cap.
+MAX_JOBS_PER_SOURCE_PER_RUN = 60
+
 # ---------------------------------------------------------------------------
 # HTTP behavior
 # ---------------------------------------------------------------------------
@@ -197,8 +209,19 @@ USER_AGENT = (
 STATE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "state")
 SEEN_JOBS_FILE = os.path.join(STATE_DIR, "seen_jobs.json")
 
-# Arbeitsagentur Jobsuche API (official, public)
-ARBEITSAGENTUR_API_URL = "https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v4/app/jobs"
+# Arbeitsagentur Jobsuche API (official, public).
+# Tried in order until one responds 200 -- the endpoint that works is then
+# reused for the rest of the run. `/pc/v4/app/jobs` started returning
+# "403 No match found" (an API-gateway routing error, not an auth problem),
+# so the currently-documented `/pc/v6/jobs` is tried first.
+ARBEITSAGENTUR_API_URLS = [
+    "https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v6/jobs",
+    "https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v5/jobs",
+    "https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v4/jobs",
+    "https://rest.arbeitsagentur.de/jobboerse/jobsuche-service/pc/v4/app/jobs",
+]
+# kept for backwards compatibility / anything referencing the single URL
+ARBEITSAGENTUR_API_URL = ARBEITSAGENTUR_API_URLS[0]
 ARBEITSAGENTUR_CLIENT_ID = "jobboerse-jobsuche"
 
 # Indeed / StepStone search bases
