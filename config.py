@@ -521,16 +521,46 @@ TELEGRAM_MAX_RETRIES = 6
 # after a fix can surface hundreds of postings at once; sending them all would
 # flood the channel and hit rate limits. Anything over the cap is simply left
 # unseen and picked up on the next run. Set to 0 to disable the cap.
+#
+# Jobs are RANKED before the cap applies (see PRIORITIZE_AUTOMOTIVE), so what
+# a lower cap defers is the least relevant end of that source's list.
 MAX_JOBS_PER_SOURCE_PER_RUN = 60
+
+# Per-source overrides. Sources differ in signal quality and in how much they
+# overlap the others, so a single number is a blunt instrument: StepStone
+# duplicates Indeed heavily, while Arbeitsagentur and Xing carry postings the
+# others do not. Anything not listed here uses the default above.
+MAX_JOBS_PER_SOURCE_OVERRIDES = {
+    "Arbeitsagentur": 80,
+    "Xing": 80,
+    "StepStone": 40,
+}
+
+
+def cap_for(source):
+    """Per-run delivery cap for one source. 0 or None means uncapped."""
+    return MAX_JOBS_PER_SOURCE_OVERRIDES.get(source, MAX_JOBS_PER_SOURCE_PER_RUN)
 
 # ---------------------------------------------------------------------------
 # HTTP behavior
 # ---------------------------------------------------------------------------
 REQUEST_TIMEOUT = 20
 REQUEST_DELAY_SECONDS = 2.0  # politeness delay between requests to one host
+# KEEP THIS CHROME VERSION CURRENT -- it is a maintenance landmine.
+#
+# StepStone rejects outdated browsers outright: pinned at Chrome/124 this
+# returned "HTTP 403 Access Denied" (a 333-byte page) for EVERY request, from
+# a residential IP as well as from the Actions runner, on both stepstone.de
+# and .at, with and without --disable-http2. Bumping the version to 141 fixed
+# it instantly -- same code, same IP, 25 result cards.
+#
+# It looked exactly like an IP ban and was not one. If StepStone starts
+# reporting 0 jobs again, check this line FIRST: the scraper logs the HTTP
+# status, byte count and page title on an empty result, so a 403 with
+# "Access Denied" means bump the version here, not rewrite the selectors.
 USER_AGENT = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+    "(KHTML, like Gecko) Chrome/141.0.0.0 Safari/537.36"
 )
 
 # ---------------------------------------------------------------------------

@@ -450,6 +450,25 @@ class AutomotivePriority(unittest.TestCase):
         self.assertIn("•", body)
 
 
+class PerSourceCaps(unittest.TestCase):
+    def test_overrides_apply(self):
+        self.assertEqual(config.cap_for("Arbeitsagentur"), 80)
+        self.assertEqual(config.cap_for("Xing"), 80)
+        self.assertEqual(config.cap_for("StepStone"), 40)
+
+    def test_unlisted_source_falls_back_to_default(self):
+        self.assertEqual(config.cap_for("Indeed"),
+                         config.MAX_JOBS_PER_SOURCE_PER_RUN)
+        self.assertEqual(config.cap_for("Some New Board"),
+                         config.MAX_JOBS_PER_SOURCE_PER_RUN)
+
+    def test_every_configured_source_has_a_usable_cap(self):
+        for source in ("Arbeitsagentur", "Indeed", "StepStone", "Xing"):
+            cap = config.cap_for(source)
+            self.assertIsInstance(cap, int)
+            self.assertGreater(cap, 0)
+
+
 class Prune(unittest.TestCase):
     def _iso(self, days_ago):
         from datetime import datetime, timedelta, timezone

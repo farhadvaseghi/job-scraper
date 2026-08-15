@@ -51,6 +51,10 @@ from scrapers.common import (
 
 log = get_logger("stepstone")
 
+# Stop hammering StepStone once this many searches in a row come back empty.
+# See the circuit breaker in scrape() for why.
+ABORT_AFTER_BARREN_SEARCHES = 6
+
 JOB_LINK_RE = re.compile(r"/stellenangebote--[^\"'\s]+\.html")
 # "Minuten" matters: the freshest cards say "vor 34 Minuten", which used to
 # fall through as an unknown age.
@@ -223,6 +227,28 @@ def _parse_anchors(html, base):
     return results
 
 
+# Fingerprints of the usual bot walls. Purely for diagnostics -- knowing
+# WHICH wall we hit is the difference between "fix the selectors" and "the
+# runner's IP is blocked, no selector change will help".
+_BLOCK_SIGNATURES = [
+    ("cloudflare", "Cloudflare challenge"),
+    ("captcha", "CAPTCHA"),
+    ("are you a human", "human-check interstitial"),
+    ("access denied", "access denied"),
+    ("unusual traffic", "unusual-traffic block"),
+    ("px-captcha", "PerimeterX"),
+    ("datadome", "DataDome"),
+    ("incapsula", "Imperva/Incapsula"),
+    ("request blocked", "request blocked"),
+]
+
+
+def _block_hint(html):
+    lowered = (html or "").lower()
+    hits = [label for sig, label in _BLOCK_SIGNATURES if sig in lowered]
+    return f" [looks like: {', '.join(hits)}]" if hits else ""
+
+
 def _parse_html(html, base="https://www.stepstone.de"):
     """Structured `data-at` cards if present, anchor-scan heuristic if not."""
     soup = BeautifulSoup(html, "html.parser")
@@ -246,9 +272,10 @@ def _search_one(page, keyword, url_template, base):
     # (ERR_HTTP2_PROTOCOL_ERROR / ERR_CONNECTION_RESET) as an anti-bot
     # measure; a retry after a short pause usually goes through.
     last_exc = None
+    response = None
     for attempt in range(1, 4):
         try:
-            page.goto(full_url, timeout=45000, wait_until="domcontentloaded")
+            response = page.goto(full_url, timeout=45000, wait_until="domcontentloaded")
             break
         except Exception as exc:
             last_exc = exc
@@ -264,7 +291,27 @@ def _search_one(page, keyword, url_template, base):
     time.sleep(2)  # let any late-rendered results settle
 
     html = page.content()
-    return _parse_html(html, base)
+    results = _parse_html(html, base)
+
+    # A 200 that parses to nothing is the signature of an anti-bot
+    # interstitial rather than a genuinely empty result page, and the two are
+    # indistinguishable in the log without this. StepStone works fine from a
+    # residential IP but blocks datacenter ranges, which is exactly what a
+    # GitHub Actions runner is -- so record enough to tell them apart.
+    if not results:
+        status = response.status if response is not None else "?"
+        title = ""
+        try:
+            title = (page.title() or "")[:80]
+        except Exception:
+            pass
+        log.warning(
+            "StepStone: 0 cards for %r -- HTTP %s, %d bytes, title=%r%s",
+            keyword, status, len(html), title,
+            _block_hint(html),
+        )
+
+    return results
 
 
 def scrape():
@@ -318,14 +365,34 @@ def scrape():
                                 else config.DACH_KEYWORDS)
             ]
 
+            barren = 0  # consecutive searches that yielded nothing
+
             for label, url_tpl, base, keyword in searches:
+                # Circuit breaker. When StepStone blocks us it blocks every
+                # request, and each keyword then burns up to 3 x 45s of
+                # retries -- 34 keywords of that would outlast the whole
+                # workflow timeout and take the other sources down with it.
+                if barren >= ABORT_AFTER_BARREN_SEARCHES:
+                    log.error(
+                        "StepStone: %d searches in a row returned nothing -- "
+                        "giving up on this source for this run. This is what a "
+                        "datacenter-IP block looks like; StepStone serves "
+                        "residential IPs fine. Remaining searches skipped: %d",
+                        barren, len(searches) - searches.index(
+                            (label, url_tpl, base, keyword)),
+                    )
+                    break
+
                 try:
                     results = _search_one(page, keyword, url_tpl, base)
                 except Exception as exc:
                     log.warning(
                         "StepStone[%s] search failed for %r: %s", label, keyword, exc
                     )
+                    barren += 1
                     continue
+
+                barren = 0 if results else barren + 1
 
                 for item in results:
                     url = item["url"]

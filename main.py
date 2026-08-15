@@ -91,18 +91,17 @@ def run():
     for source, jobs in jobs_by_source.items():
         jobs_by_source[source] = rank_jobs(jobs)
 
-    cap = config.MAX_JOBS_PER_SOURCE_PER_RUN
-    if cap:
-        for source, jobs in jobs_by_source.items():
-            if len(jobs) > cap:
-                kept_priority = sum(1 for j in jobs[:cap] if automotive_score(j))
-                dropped_priority = sum(1 for j in jobs[cap:] if automotive_score(j))
-                log.info(
-                    "%s: capping %d jobs to %d this run (rest come next run); "
-                    "%d automotive kept, %d deferred",
-                    source, len(jobs), cap, kept_priority, dropped_priority,
-                )
-                jobs_by_source[source] = jobs[:cap]
+    for source, jobs in jobs_by_source.items():
+        cap = config.cap_for(source)
+        if cap and len(jobs) > cap:
+            kept_priority = sum(1 for j in jobs[:cap] if automotive_score(j))
+            dropped_priority = sum(1 for j in jobs[cap:] if automotive_score(j))
+            log.info(
+                "%s: capping %d jobs to %d this run (rest come next run); "
+                "%d automotive kept, %d deferred",
+                source, len(jobs), cap, kept_priority, dropped_priority,
+            )
+            jobs_by_source[source] = jobs[:cap]
 
     if failed_sources:
         log.warning("Sources that failed this run: %s", ", ".join(failed_sources))
