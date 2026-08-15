@@ -38,6 +38,13 @@ _SENIORITY_WORD_RE = [
 # terms so a "Leiterplattenentwickler" posting is not dropped as management.
 _SENIORITY_ALLOW_RE = re.compile(r"\bleiterplatt\w*", re.IGNORECASE)
 
+# Word-boundary regex per automotive employer, same reasoning as the defense
+# list: "audi" must not fire inside an unrelated longer word.
+_AUTOMOTIVE_COMPANY_RE = [
+    re.compile(r"\b" + re.escape(term.strip()) + r"\b", re.IGNORECASE)
+    for term in config.AUTOMOTIVE_COMPANIES
+]
+
 
 # Punctuation/decoration that differs between boards for the same posting:
 # "(m/w/d)", "(all genders)", extra whitespace, etc.
@@ -260,6 +267,38 @@ def passes_city_filter(city):
     if city_slug in country_only:
         return True
     return any(_slug_has_token(city_slug, target) for target in targets)
+
+
+def automotive_score(job):
+    """How strongly a posting looks automotive. 0 = not, higher = more.
+
+    Used only for RANKING (see rank_jobs) -- never to drop anything.
+    """
+    if not config.PRIORITIZE_AUTOMOTIVE:
+        return 0
+
+    score = 0
+    title = to_text(job.get("title")).lower()
+    if any(term in title for term in config.AUTOMOTIVE_TITLE_TERMS):
+        score += config.AUTOMOTIVE_TITLE_SCORE
+
+    company = to_text(job.get("company")).lower()
+    if company and any(rx.search(company) for rx in _AUTOMOTIVE_COMPANY_RE):
+        score += config.AUTOMOTIVE_COMPANY_SCORE
+
+    return score
+
+
+def rank_jobs(jobs):
+    """Highest-priority first, stable within a score.
+
+    Python's sort is stable, so postings with the same score keep the order
+    the scraper collected them in -- ranking only lifts automotive roles above
+    the rest, it does not otherwise reshuffle the digest.
+    """
+    if not config.PRIORITIZE_AUTOMOTIVE:
+        return list(jobs)
+    return sorted(jobs, key=automotive_score, reverse=True)
 
 
 def dedupe_key(job):

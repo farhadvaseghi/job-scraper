@@ -19,6 +19,7 @@ import config
 import dedupe
 import telegram_notify
 from scrapers.common import (
+    automotive_score,
     content_key,
     dedupe_key,
     make_job,
@@ -28,6 +29,7 @@ from scrapers.common import (
     passes_permanent_filter,
     passes_relevance_filter,
     passes_seniority_filter,
+    rank_jobs,
     to_text,
 )
 
@@ -208,6 +210,25 @@ class RelevanceFilter(unittest.TestCase):
                   "Data Scientist / Machine Learning Engineer (m/w/d)"):
             self.assertTrue(passes_relevance_filter(t), t)
 
+    def test_vocational_and_non_fulltime_titles_excluded(self):
+        """Trade titles share stems with the engineering ones -- e.g.
+        'Mechatroniker' contains 'mechatronik', 'Testfahrer' contains 'test'."""
+        for t in ("Ausbildung zum KFZ-Mechatroniker (w/m/d)",
+                  "KFZ Mechatroniker (m/w/d) Fuhrparkmanagement",
+                  "Fahrzeugtester / Testfahrer Bus (m/w/d)",
+                  "Quereinstieg englischsprachiger Fahrer/Testfahrer",
+                  "Werkstudent Label Quality Engineering - Autonomous Driving",
+                  "Praktikum Software Engineering"):
+            self.assertFalse(passes_relevance_filter(t), t)
+
+    def test_engineering_titles_with_similar_stems_survive(self):
+        """The exclusions must not take the real roles with them."""
+        for t in ("Mechatronik-Ingenieur (m/w/d)",
+                  "Entwicklungsingenieur Fahrerassistenzsysteme",
+                  "Test Automation Engineer",
+                  "Software Test Engineer Automotive"):
+            self.assertTrue(passes_relevance_filter(t), t)
+
     def test_plain_data_titles_still_excluded(self):
         for t in ("Data Engineer", "Snowflake Data Engineer (all genders)",
                   "Data Scientist - AI & Experimentation (m/f/d)",
@@ -352,6 +373,81 @@ class ContentKey(unittest.TestCase):
                      "https://xing.test/2")
         seen = dedupe.mark_seen({}, [a])
         self.assertEqual(dedupe.filter_new([b], seen), [])
+
+
+class AutomotivePriority(unittest.TestCase):
+    def _job(self, title, company="ACME GmbH"):
+        return make_job("Indeed", title, company, "Berlin", "https://x.test/1")
+
+    def test_automotive_titles_score(self):
+        for t in ("ADAS Engineer", "Automotive Software Engineer",
+                  "Fahrzeugtechnik Ingenieur", "AUTOSAR Developer",
+                  "Embedded Engineer Powertrain", "Sensor Fusion Engineer",
+                  "Software Engineer Infotainment"):
+            self.assertGreater(automotive_score(self._job(t)), 0, t)
+
+    def test_non_automotive_titles_score_zero(self):
+        for t in ("Python Developer", "FPGA Engineer",
+                  "Full-Stack Developer", "QA Engineer"):
+            self.assertEqual(automotive_score(self._job(t)), 0, t)
+
+    def test_employer_contributes(self):
+        plain = self._job("Embedded Software Engineer", "Some GmbH")
+        oem = self._job("Embedded Software Engineer", "Robert Bosch GmbH")
+        self.assertEqual(automotive_score(plain), 0)
+        self.assertGreater(automotive_score(oem), 0)
+
+    def test_title_outranks_employer(self):
+        """An ADAS role anywhere beats a generic role at a car company."""
+        adas = self._job("ADAS Engineer", "Some GmbH")
+        at_oem = self._job("Backend Developer", "Robert Bosch GmbH")
+        self.assertGreater(automotive_score(adas), automotive_score(at_oem))
+
+    def test_company_word_boundaries(self):
+        """'audi' must not fire inside an unrelated name."""
+        self.assertEqual(
+            automotive_score(self._job("Software Engineer", "Audiotec Fischer")), 0)
+
+    def test_ranking_puts_automotive_first_and_is_stable(self):
+        jobs = [
+            self._job("Python Developer"),
+            self._job("QA Engineer"),
+            self._job("ADAS Engineer"),
+            self._job("Full-Stack Developer"),
+            self._job("Automotive Software Engineer"),
+        ]
+        ranked = rank_jobs(jobs)
+        self.assertEqual(ranked[0]["title"], "ADAS Engineer")
+        self.assertEqual(ranked[1]["title"], "Automotive Software Engineer")
+        # non-automotive keep their original relative order
+        self.assertEqual([j["title"] for j in ranked[2:]],
+                         ["Python Developer", "QA Engineer",
+                          "Full-Stack Developer"])
+
+    def test_ranking_never_drops_anything(self):
+        jobs = [self._job(f"Engineer {i}") for i in range(20)]
+        self.assertEqual(len(rank_jobs(jobs)), 20)
+
+    def test_automotive_survives_the_per_run_cap(self):
+        """The point of ranking: the cap must not discard automotive roles."""
+        filler = [self._job(f"Python Developer {i}") for i in range(100)]
+        priority = self._job("ADAS Engineer")
+        ranked = rank_jobs(filler + [priority])  # priority collected LAST
+        self.assertIn(priority["title"], [j["title"] for j in ranked[:60]])
+
+    def test_can_be_switched_off(self):
+        original = config.PRIORITIZE_AUTOMOTIVE
+        config.PRIORITIZE_AUTOMOTIVE = False
+        try:
+            self.assertEqual(automotive_score(self._job("ADAS Engineer")), 0)
+        finally:
+            config.PRIORITIZE_AUTOMOTIVE = original
+
+    def test_marked_in_the_digest(self):
+        body = "\n".join(telegram_notify.format_source_messages(
+            "Indeed", [self._job("ADAS Engineer"), self._job("QA Engineer")]))
+        self.assertIn("🚗", body)
+        self.assertIn("•", body)
 
 
 class Prune(unittest.TestCase):

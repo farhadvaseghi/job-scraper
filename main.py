@@ -16,7 +16,13 @@ import sys
 import config
 import dedupe
 import telegram_notify
-from scrapers.common import get_logger, passes_city_filter, passes_relevance_filter
+from scrapers.common import (
+    automotive_score,
+    get_logger,
+    passes_city_filter,
+    passes_relevance_filter,
+    rank_jobs,
+)
 from scrapers import arbeitsagentur, indeed, stepstone, xing
 
 log = get_logger("main")
@@ -79,13 +85,22 @@ def run():
     for job in new_jobs:
         jobs_by_source.setdefault(job["source"], []).append(job)
 
+    # Rank BEFORE capping, so the cap discards the least relevant postings
+    # rather than whatever happened to be collected last. Ranking never drops
+    # anything -- see rank_jobs.
+    for source, jobs in jobs_by_source.items():
+        jobs_by_source[source] = rank_jobs(jobs)
+
     cap = config.MAX_JOBS_PER_SOURCE_PER_RUN
     if cap:
         for source, jobs in jobs_by_source.items():
             if len(jobs) > cap:
+                kept_priority = sum(1 for j in jobs[:cap] if automotive_score(j))
+                dropped_priority = sum(1 for j in jobs[cap:] if automotive_score(j))
                 log.info(
-                    "%s: capping %d jobs to %d this run (rest come next run)",
-                    source, len(jobs), cap,
+                    "%s: capping %d jobs to %d this run (rest come next run); "
+                    "%d automotive kept, %d deferred",
+                    source, len(jobs), cap, kept_priority, dropped_priority,
                 )
                 jobs_by_source[source] = jobs[:cap]
 

@@ -368,6 +368,29 @@ TITLE_EXCLUDE_TERMS = [
     "business intelligence",
     "bi developer",
     "etl developer",
+
+    # --- vocational / non-graduate / not-full-time -----------------------
+    # The brief is junior-but-graduate, full-time, permanent. These slipped
+    # through because German trade titles contain the same stems as the
+    # engineering ones: "Mechatroniker" (a skilled trade) contains
+    # "mechatronik" (the field), and "Testfahrer" contains "test". Note the
+    # positive stems stay -- "Mechatronik-Ingenieur" is still in scope,
+    # because exclusions are checked before the positive terms.
+    "ausbildung",
+    "auszubildende",
+    "azubi",
+    "werkstudent",
+    "praktikum",
+    "praktikant",
+    "mechatroniker",
+    "mechaniker",
+    "testfahrer",
+    "fahrzeugtester",
+    "kraftfahrer",
+    "berufskraftfahrer",
+    "monteur",
+    "quereinstieg",
+    "umschulung",
 ]
 
 # ...unless the title ALSO names one of these. Postings are routinely
@@ -402,6 +425,63 @@ RELEVANCE_TERMS = [
     # common languages/stacks that identify a dev role
     "python", "c++", "java", "matlab", "linux", "devops", "backend",
     "frontend", "full-stack", "fullstack",
+]
+
+# ---------------------------------------------------------------------------
+# Automotive priority
+#
+# Jobs are RANKED before MAX_JOBS_PER_SOURCE_PER_RUN trims each source, so
+# automotive roles survive the cut and appear first in the digest. This is not
+# a filter -- nothing is dropped for being non-automotive; it only decides
+# what goes first and what gets pushed to the next run. That matters because
+# the cap is doing real work: a recent run trimmed Xing from 301 to 60 and
+# Indeed from 270 to 60, keeping whatever happened to be collected first.
+#
+# Scoring: a title hit is worth more than an employer hit, because an
+# "Embedded Software Engineer" at Bosch may have nothing to do with vehicles,
+# while an "ADAS Engineer" anywhere certainly does.
+# ---------------------------------------------------------------------------
+PRIORITIZE_AUTOMOTIVE = True
+
+AUTOMOTIVE_TITLE_SCORE = 3
+AUTOMOTIVE_COMPANY_SCORE = 1
+
+# Matched as substrings against the lowercased title.
+AUTOMOTIVE_TITLE_TERMS = [
+    "automotive", "automobil", "fahrzeug", "kfz", "vehicle",
+    "adas", "autonomes fahren", "autonomous driving", "self-driving",
+    "autosar", "iso 26262", "functional safety", "funktionale sicherheit",
+    "powertrain", "antriebsstrang", "chassis", "fahrwerk",
+    "e-mobility", "emobility", "elektromobilit", "ladeinfrastruktur",
+    "battery management", "batteriemanagement", "bms",
+    "infotainment", "cockpit", "telematik", "telematics",
+    "can-bus", "can bus", "canbus", "flexray", "lin-bus",
+    "hardware-in-the-loop", "hardware in the loop", "hil-",
+    "driver assistance", "fahrerassistenz", "sensor fusion", "sensorfusion",
+    "lidar", "radar",
+]
+
+# Matched as whole words against the lowercased employer name. Deliberately
+# distinctive names only -- a generic token would mislabel unrelated firms.
+# Note the defense filter runs first and independently, so a defense arm of
+# any of these is still excluded.
+AUTOMOTIVE_COMPANIES = [
+    # OEMs
+    "volkswagen", "audi", "porsche", "bmw", "mercedes-benz", "daimler",
+    "opel", "ford", "skoda", "seat", "cupra", "stellantis", "tesla",
+    "rivian", "lucid motors", "nio", "polestar", "volvo cars",
+    # tier 1 / tier 2 suppliers
+    "bosch", "zf friedrichshafen", "continental", "schaeffler", "mahle",
+    "hella", "valeo", "brose", "vitesco", "eberspächer", "eberspaecher",
+    "webasto", "dräxlmaier", "draexlmaier", "leoni", "elringklinger",
+    "knorr-bremse", "magna", "denso", "aptiv", "forvia", "faurecia",
+    "marelli", "hyundai mobis", "borgwarner", "thyssenkrupp automotive",
+    # engineering service providers / test houses
+    "bertrandt", "edag", "iav ", "fev ", "avl ", "ika ", "akka",
+    "alten", "assystem", "invenio", "in-tech", "umlaut",
+    # commercial vehicles / mobility tech
+    "daimler truck", "traton", "scania", "iveco", "zenseact", "mobileye",
+    "luminar", "innoviz", "valeo schalter",
 ]
 
 # ---------------------------------------------------------------------------

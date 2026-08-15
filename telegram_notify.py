@@ -15,7 +15,7 @@ import time
 import requests
 
 import config
-from scrapers.common import get_logger, to_text
+from scrapers.common import automotive_score, get_logger, to_text
 
 log = get_logger("telegram")
 
@@ -64,12 +64,16 @@ def _job_lines(job):
     raw_age = to_text(job.get("raw_age_text"))
     age = f" ({_escape_html(_clip(raw_age, 40))})" if raw_age else ""
 
+    # Automotive roles are ranked to the top of each source; mark them so
+    # that ordering is visible rather than implicit.
+    bullet = "🚗" if automotive_score(job) else "•"
+
     url = to_text(job.get("url"))
     if url.startswith("http"):
-        head = f'• <a href="{_escape_attr(url)}">{title}</a>{age}'
+        head = f'{bullet} <a href="{_escape_attr(url)}">{title}</a>{age}'
     else:
         # No usable link -- still worth sending, just not as an anchor.
-        head = f"• {title}{age}"
+        head = f"{bullet} {title}{age}"
 
     out = [_clip(head, MAX_LINE_LEN)]
     if meta:

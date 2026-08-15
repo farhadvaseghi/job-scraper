@@ -41,6 +41,15 @@ stated city are always kept).
 - `tests/test_logic.py` -- offline tests for the filters, dedup store and Telegram formatting. Run with `python -m unittest discover -s tests -v`.
 - `.github/workflows/job_scraper.yml` -- runs the scraper. Manual trigger only (no automatic schedule); re-add a `schedule:` block here if you want automatic runs.
 
+## Automotive priority
+
+`PRIORITIZE_AUTOMOTIVE` (default **on**) sorts automotive roles to the front
+of each source *before* the per-run cap trims it, so ADAS/vehicle jobs are
+never the ones discarded. They're marked with 🚗 in the digest. Nothing is
+dropped for being non-automotive — this only changes ordering and what waits
+for the next run. Tune via `AUTOMOTIVE_TITLE_TERMS` and
+`AUTOMOTIVE_COMPANIES`.
+
 ## Cutting down the volume
 
 Four knobs in `config.py`, in rough order of impact:
