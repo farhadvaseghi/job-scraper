@@ -41,7 +41,8 @@ Results are then filtered to the city list in `config.CITIES_BY_COUNTRY`
 Four knobs in `config.py`, in rough order of impact:
 
 - `RESTRICT_TO_CITIES` (default **on**) -- drop postings outside `CITIES_BY_COUNTRY`. Remote/hybrid and unknown-location postings are kept.
-- `REQUIRE_RELEVANT_TITLE` (default **on**) -- the title must contain an engineering stem from `RELEVANCE_TERMS`. The boards match loosely; a "Softwareentwickler" search happily returns "Technical Consultant".
+- `REQUIRE_RELEVANT_TITLE` (default **on**) -- the title must contain an engineering stem from `RELEVANCE_TERMS`, and must not contain anything from `TITLE_EXCLUDE_TERMS`. The boards match loosely; a "Softwareentwickler" search happily returns "Technical Consultant".
+- `TITLE_EXCLUDE_TERMS` -- hard opt-outs, checked before the positive terms. Data engineering / data science roles are excluded here; removing their search keyword alone doesn't work, because they also come back from the ML/AI and general-software queries.
 - `DEDUPE_ACROSS_SOURCES` (default **on**) -- the same posting listed on several boards under different URLs is sent once, not four times.
 - `MAX_AGE_DAYS` (7) and `MAX_JOBS_PER_SOURCE_PER_RUN` (60) -- narrow the window, or spread a big backlog over more runs.
 

@@ -27,12 +27,13 @@ KEYWORD_GROUPS = {
         "Robotik-Ingenieur",
         "Autonomes Fahren",
     ],
+    # NB: no "Data Scientist" / "Data Engineer" here -- data roles are out of
+    # scope on purpose, see TITLE_EXCLUDE_TERMS below.
     "Computer Vision / ML / AI": [
         "Computer Vision Engineer",
         "Machine Learning Engineer",
         "Deep Learning Engineer",
         "KI-Ingenieur",
-        "Data Scientist",
     ],
     "ADAS / Automotive": [
         "ADAS Engineer",
@@ -301,6 +302,35 @@ DEFENSE_COMPANIES = [
 # ---------------------------------------------------------------------------
 REQUIRE_RELEVANT_TITLE = True
 
+# Titles to drop even when they pass RELEVANCE_TERMS. Data engineering and
+# data science are deliberately out of scope, but they leak in through the
+# ML/AI and general-software searches -- a "Machine Learning Engineer" query
+# happily returns "Data Scientist" -- so removing the search keyword alone is
+# not enough. Checked BEFORE the positive relevance terms.
+#
+# Matched as substrings on the lowercased title. "machine learning",
+# "deep learning" and "computer vision" are deliberately NOT here: those stay
+# in scope.
+TITLE_EXCLUDE_TERMS = [
+    "data scientist",
+    "data science",
+    "datenwissenschaft",
+    "data engineer",
+    "data engineering",
+    "dateningenieur",
+    "data analyst",
+    "datenanalyst",
+    "datenanalyse",
+    "data analytics",
+    "analytics engineer",
+    "big data",
+    "data warehouse",
+    "data platform",
+    "business intelligence",
+    "bi developer",
+    "etl developer",
+]
+
 RELEVANCE_TERMS = [
     # generic engineering / dev
     "software", "entwickl", "developer", "engineer", "ingenieur", "informatik",
@@ -308,7 +338,7 @@ RELEVANCE_TERMS = [
     # the specific areas from the resume
     "embedded", "firmware", "hardware", "robot", "autonom", "slam",
     "computer vision", "machine learning", "deep learning", "ki-", " ai ",
-    "data scien", "datenanalyse", "adas", "sensor", "dsp", "signal",
+    "adas", "sensor", "dsp", "signal",
     "fpga", "rtl", "vhdl", "verilog", "asic", "digital design",
     "test", "qa", "quality", "validierung", "verifikation",
     "automation", "automatisierung", "plc", "sps", "steuerung", "mechatronik",

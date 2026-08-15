@@ -182,6 +182,11 @@ def passes_relevance_filter(title):
     if not title:
         return False
     lowered = title.lower()
+    # Explicit opt-outs win over the positive terms: a "Data Scientist"
+    # posting matches nothing in RELEVANCE_TERMS any more, but a
+    # "Data Engineer (Python)" would still match "python".
+    if any(term in lowered for term in config.TITLE_EXCLUDE_TERMS):
+        return False
     return any(term in lowered for term in config.RELEVANCE_TERMS)
 
 

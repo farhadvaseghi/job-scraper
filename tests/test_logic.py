@@ -163,7 +163,7 @@ class RelevanceFilter(unittest.TestCase):
     def test_engineering_titles_kept(self):
         for t in ("Softwareentwickler (m/w/d)", "Embedded Software Engineer",
                   "FPGA Entwickler", "Test Automation Engineer",
-                  "Data Scientist", "Automatisierungsingenieur"):
+                  "Automatisierungsingenieur"):
             self.assertTrue(passes_relevance_filter(t), t)
 
     def test_off_topic_titles_dropped(self):
@@ -178,6 +178,28 @@ class RelevanceFilter(unittest.TestCase):
             self.assertTrue(passes_relevance_filter("Vertriebsmitarbeiter"))
         finally:
             config.REQUIRE_RELEVANT_TITLE = original
+
+    def test_data_roles_are_excluded(self):
+        """Out of scope by request -- and they leak in via the ML/AI and
+        general-software searches, not just their own keyword."""
+        for t in ("Data Scientist", "Senior Data Scientist (m/w/d)",
+                  "Data Engineer", "Data Engineer (Python)",
+                  "Analytics Engineer", "Big Data Engineer",
+                  "Data Analyst", "Business Intelligence Developer",
+                  "Werkstudent Data Science"):
+            self.assertFalse(passes_relevance_filter(t), t)
+
+    def test_adjacent_ml_roles_are_kept(self):
+        """The exclusion must not swallow the ML/CV roles that are in scope."""
+        for t in ("Machine Learning Engineer", "Deep Learning Engineer",
+                  "Computer Vision Engineer", "MLOps Engineer",
+                  "AI Engineer (m/w/d)", "Sensor Fusion Engineer"):
+            self.assertTrue(passes_relevance_filter(t), t)
+
+    def test_data_scientist_is_no_longer_a_search_keyword(self):
+        for kw_list in (config.KEYWORDS, config.DACH_KEYWORDS,
+                        config.INTERNATIONAL_KEYWORDS):
+            self.assertNotIn("Data Scientist", kw_list)
 
 
 class CityFilter(unittest.TestCase):
