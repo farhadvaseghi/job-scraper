@@ -9,6 +9,21 @@ See README.md for setup instructions.
 import os
 
 # ---------------------------------------------------------------------------
+# THE geography switch. Everything geographic derives from it: which cities
+# are accepted, which Indeed domains are queried, which StepStone site is
+# used and which Xing locations are searched.
+#
+# Currently Germany-only (owner's request). To widen again, add any of
+# "Netherlands", "Austria", "Switzerland" -- the city lists, the StepStone
+# .at entry and the Xing locations for all of them are still defined below
+# and are verified working, so re-enabling is a one-line change.
+#
+# Arbeitsagentur is unaffected either way: it is the German federal job API
+# and has no other country.
+# ---------------------------------------------------------------------------
+ACTIVE_COUNTRIES = ["Germany"]
+
+# ---------------------------------------------------------------------------
 # Keywords, grouped by role area. German-first since these are German job
 # boards -- German terms surface far more results than English ones.
 # ---------------------------------------------------------------------------
@@ -112,13 +127,24 @@ DACH_KEYWORDS = [
 
 # Which Indeed country domains to search. jobspy resolves these to the right
 # Indeed subdomain (de / nl / at / ch) -- verified present in its Country enum.
-INDEED_COUNTRIES = ["Germany", "Netherlands", "Austria", "Switzerland"]
+INDEED_COUNTRIES = [
+    c for c in ["Germany", "Netherlands", "Austria", "Switzerland"]
+    if c in ACTIVE_COUNTRIES
+]
 
-# Xing is a DACH network -- no meaningful Netherlands coverage, so it is
-# searched for the German-speaking countries only. None = nationwide default
+# Xing is a DACH network -- no meaningful Netherlands coverage, so it only
+# ever covers the German-speaking countries. None = nationwide default
 # (Germany); the named locations are verified to work as a `location` query
 # param (location=Wien returned 21 cards, all in Vienna).
-XING_LOCATIONS = [None, "Wien", "Zürich"]
+_XING_LOCATIONS_BY_COUNTRY = [
+    (None, "Germany"),
+    ("Wien", "Austria"),
+    ("Zürich", "Switzerland"),
+]
+XING_LOCATIONS = [
+    location for location, country in _XING_LOCATIONS_BY_COUNTRY
+    if country in ACTIVE_COUNTRIES
+]
 
 # ---------------------------------------------------------------------------
 # Cities -- main big German cities. Used to tag/filter results; searches
@@ -143,7 +169,12 @@ CITIES_BY_COUNTRY = {
     ],
 }
 
-CITIES = [city for cities in CITIES_BY_COUNTRY.values() for city in cities]
+CITIES = [
+    city
+    for country, cities in CITIES_BY_COUNTRY.items()
+    if country in ACTIVE_COUNTRIES
+    for city in cities
+]
 
 # Alternate spellings for the same place. Job boards disagree on language --
 # Indeed Switzerland says "Zurich", Xing says "Zürich"; Dutch boards say
@@ -172,13 +203,21 @@ REMOTE_TERMS = [
 ]
 
 # Location values that name a country rather than a city. Indeed returns a
-# bare "NL" / "DE" for nationwide postings; those are effectively
-# unknown-location and are kept rather than dropped by the city filter.
+# bare "NL" / "DE" for nationwide postings; for an ACTIVE country those are
+# effectively unknown-location and are kept rather than dropped. A country
+# that is NOT active is not listed here, so a nationwide Dutch posting is
+# correctly dropped while Germany-only is in force.
+_COUNTRY_ONLY_BY_COUNTRY = {
+    "Germany": ["de", "deutschland", "germany"],
+    "Netherlands": ["nl", "nederland", "netherlands", "the netherlands"],
+    "Austria": ["at", "oesterreich", "österreich", "austria"],
+    "Switzerland": ["ch", "schweiz", "switzerland", "suisse"],
+}
 COUNTRY_ONLY_LOCATIONS = [
-    "de", "nl", "at", "ch",
-    "deutschland", "germany", "nederland", "netherlands", "the netherlands",
-    "oesterreich", "österreich", "austria",
-    "schweiz", "switzerland", "suisse",
+    token
+    for country, tokens in _COUNTRY_ONLY_BY_COUNTRY.items()
+    if country in ACTIVE_COUNTRIES
+    for token in tokens
 ]
 
 # ---------------------------------------------------------------------------
@@ -313,10 +352,10 @@ REQUIRE_RELEVANT_TITLE = True
 # in scope.
 TITLE_EXCLUDE_TERMS = [
     "data scientist",
-    "data science",
-    "datenwissenschaft",
     "data engineer",
     "data engineering",
+    "data science",
+    "datenwissenschaft",
     "dateningenieur",
     "data analyst",
     "datenanalyst",
@@ -329,6 +368,24 @@ TITLE_EXCLUDE_TERMS = [
     "business intelligence",
     "bi developer",
     "etl developer",
+]
+
+# ...unless the title ALSO names one of these. Postings are routinely
+# advertised as "Data Engineer* / Machine Learning Engineer*" -- that is an ML
+# role and should still come through, while a plain "Data Engineer" should
+# not. Checked after TITLE_EXCLUDE_TERMS and it wins.
+# Keep this list narrow: "ai" is deliberately absent, or every
+# "Data Scientist - AI & Experimentation" would be rescued too.
+TITLE_EXCLUDE_OVERRIDE_TERMS = [
+    "machine learning",
+    "deep learning",
+    "computer vision",
+    "ml engineer",
+    "mlops",
+    "robotic",
+    "embedded",
+    "firmware",
+    "fpga",
 ]
 
 RELEVANCE_TERMS = [
@@ -434,12 +491,17 @@ STEPSTONE_SEARCH_URL = "https://www.stepstone.de/jobs/{slug}/in-deutschland"
 # exactly like Germany (same `data-at` card markup, same `?ag=age_7` filter,
 # 25 cards in 4s). There is no StepStone Netherlands or Switzerland, so those
 # two countries are covered by Indeed only.
-# Each entry: (label, search-URL template, base URL for relative links)
-STEPSTONE_SEARCHES = [
-    ("de", "https://www.stepstone.de/jobs/{slug}/in-deutschland",
+# Each entry: (label, country, search-URL template, base URL for relative links)
+_STEPSTONE_SEARCHES_ALL = [
+    ("de", "Germany", "https://www.stepstone.de/jobs/{slug}/in-deutschland",
      "https://www.stepstone.de"),
-    ("at", "https://www.stepstone.at/jobs/{slug}/in-oesterreich",
+    ("at", "Austria", "https://www.stepstone.at/jobs/{slug}/in-oesterreich",
      "https://www.stepstone.at"),
+]
+STEPSTONE_SEARCHES = [
+    (label, url, base)
+    for label, country, url, base in _STEPSTONE_SEARCHES_ALL
+    if country in ACTIVE_COUNTRIES
 ]
 
 # Xing search base (Playwright-driven, best-effort -- see scrapers/xing.py)

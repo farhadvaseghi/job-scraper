@@ -201,6 +201,38 @@ class RelevanceFilter(unittest.TestCase):
                         config.INTERNATIONAL_KEYWORDS):
             self.assertNotIn("Data Scientist", kw_list)
 
+    def test_hybrid_data_ml_title_is_rescued(self):
+        """'Data Engineer* / Machine Learning Engineer*' is an ML role."""
+        for t in ("Data Engineer* / Machine Learning Engineer*",
+                  "Data Engineer / Computer Vision Specialist",
+                  "Data Scientist / Machine Learning Engineer (m/w/d)"):
+            self.assertTrue(passes_relevance_filter(t), t)
+
+    def test_plain_data_titles_still_excluded(self):
+        for t in ("Data Engineer", "Snowflake Data Engineer (all genders)",
+                  "Data Scientist - AI & Experimentation (m/f/d)",
+                  "Data & Analytics Engineer (m/w/d)"):
+            self.assertFalse(passes_relevance_filter(t), t)
+
+
+class GermanyOnly(unittest.TestCase):
+    """The geography switch must reach every source that has one."""
+
+    def test_single_switch_drives_every_source(self):
+        self.assertEqual(config.ACTIVE_COUNTRIES, ["Germany"])
+        self.assertEqual(config.INDEED_COUNTRIES, ["Germany"])
+        self.assertEqual([s[0] for s in config.STEPSTONE_SEARCHES], ["de"])
+        self.assertEqual(config.XING_LOCATIONS, [None])
+
+    def test_only_german_cities_are_accepted(self):
+        self.assertEqual(set(config.CITIES),
+                         set(config.CITIES_BY_COUNTRY["Germany"]))
+
+    def test_other_countries_remain_defined_for_easy_re_enable(self):
+        for country in ("Netherlands", "Austria", "Switzerland"):
+            self.assertIn(country, config.CITIES_BY_COUNTRY)
+            self.assertTrue(config.CITIES_BY_COUNTRY[country])
+
 
 class CityFilter(unittest.TestCase):
     def setUp(self):
@@ -228,15 +260,35 @@ class CityFilter(unittest.TestCase):
         for c in ("Kirchdorf an der Iller", "Ulm, Donau", "Bargteheide"):
             self.assertFalse(passes_city_filter(c), c)
 
-    def test_international_targets(self):
-        for c in ("Amsterdam, Noord-Holland", "Rotterdam", "Eindhoven",
-                  "Wien", "Graz", "Zürich, ZH", "Basel", "Zug", "Lausanne"):
-            self.assertTrue(passes_city_filter(c), c)
+    def test_international_cities_dropped_while_germany_only(self):
+        """ACTIVE_COUNTRIES is currently ["Germany"]."""
+        self.assertEqual(config.ACTIVE_COUNTRIES, ["Germany"])
+        for c in ("Amsterdam, Noord-Holland", "Wien", "Zürich, ZH", "Basel"):
+            self.assertFalse(passes_city_filter(c), c)
+
+    def test_widening_active_countries_re_enables_them(self):
+        """Re-enabling a country must be the only change needed."""
+        original = config.ACTIVE_COUNTRIES
+        config.ACTIVE_COUNTRIES = ["Germany", "Netherlands", "Austria",
+                                   "Switzerland"]
+        config.CITIES = [c for country, cities
+                         in config.CITIES_BY_COUNTRY.items()
+                         if country in config.ACTIVE_COUNTRIES
+                         for c in cities]
+        try:
+            for c in ("Amsterdam", "Wien", "Vienna", "Zürich", "Zurich",
+                      "Basel", "The Hague", "Den Haag"):
+                self.assertTrue(passes_city_filter(c), c)
+        finally:
+            config.ACTIVE_COUNTRIES = original
+            config.CITIES = [c for country, cities
+                             in config.CITIES_BY_COUNTRY.items()
+                             if country in original for c in cities]
 
     def test_alias_spellings(self):
-        """Boards disagree on language: Zurich/Zürich, Vienna/Wien, ..."""
-        for c in ("Zurich", "Vienna", "Munich, BY", "Cologne", "Geneva",
-                  "Genève", "The Hague", "Den Haag", "Nuremberg"):
+        """Boards disagree on language: Munich/München, Cologne/Köln, ..."""
+        for c in ("Munich, BY", "Cologne", "Nuremberg", "Muenchen",
+                  "Frankfurt"):
             self.assertTrue(passes_city_filter(c), c)
 
     def test_substring_lookalikes_are_not_matched(self):
@@ -248,10 +300,15 @@ class CityFilter(unittest.TestCase):
         """'Bernau bei Berlin' genuinely is in the Berlin area."""
         self.assertTrue(passes_city_filter("Bernau bei Berlin"))
 
-    def test_country_only_location_is_treated_as_unknown(self):
-        """Indeed returns a bare 'NL' for nationwide postings."""
-        for c in ("NL", "DE", "Deutschland", "Nederland", "Switzerland"):
+    def test_active_country_only_location_is_treated_as_unknown(self):
+        """Indeed returns a bare 'DE' for nationwide postings."""
+        for c in ("DE", "Deutschland", "Germany"):
             self.assertTrue(passes_city_filter(c), c)
+
+    def test_inactive_country_only_location_is_dropped(self):
+        """A nationwide Dutch posting is not 'unknown', it is out of scope."""
+        for c in ("NL", "Nederland", "Switzerland"):
+            self.assertFalse(passes_city_filter(c), c)
 
 
 class DutchTempAgencyTerms(unittest.TestCase):

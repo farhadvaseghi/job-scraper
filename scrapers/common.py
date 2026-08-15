@@ -184,26 +184,42 @@ def passes_relevance_filter(title):
     lowered = title.lower()
     # Explicit opt-outs win over the positive terms: a "Data Scientist"
     # posting matches nothing in RELEVANCE_TERMS any more, but a
-    # "Data Engineer (Python)" would still match "python".
+    # "Data Engineer (Python)" would still match "python". An in-scope
+    # override (e.g. "Data Engineer / Machine Learning Engineer") rescues it.
     if any(term in lowered for term in config.TITLE_EXCLUDE_TERMS):
-        return False
+        if not any(ok in lowered for ok in config.TITLE_EXCLUDE_OVERRIDE_TERMS):
+            return False
     return any(term in lowered for term in config.RELEVANCE_TERMS)
 
 
-def _city_target_slugs():
-    """Every accepted city spelling, umlaut-folded, built once at import."""
-    slugs = set()
-    for city in config.CITIES:
-        slugs.add(_slug(city))
-    for canonical, aliases in config.CITY_ALIASES.items():
-        slugs.add(_slug(canonical))
-        for alias in aliases:
-            slugs.add(_slug(alias))
-    return {s for s in slugs if s}
+_city_cache = {"key": None, "targets": frozenset(), "country_only": frozenset()}
 
 
-_CITY_TARGETS = _city_target_slugs()
-_COUNTRY_ONLY = {_slug(c) for c in config.COUNTRY_ONLY_LOCATIONS}
+def _city_targets():
+    """Accepted city spellings (umlaut-folded) and bare-country tokens.
+
+    Rebuilt whenever the underlying config lists change rather than frozen at
+    import, so flipping config.ACTIVE_COUNTRIES actually takes effect --
+    including from tests.
+    """
+    key = (tuple(config.CITIES), tuple(config.COUNTRY_ONLY_LOCATIONS))
+    if _city_cache["key"] != key:
+        slugs = {_slug(city) for city in config.CITIES}
+        active = {_slug(city) for city in config.CITIES}
+        for canonical, aliases in config.CITY_ALIASES.items():
+            # only pull in aliases for cities that are actually active
+            if _slug(canonical) not in active:
+                continue
+            for alias in aliases:
+                slugs.add(_slug(alias))
+        _city_cache.update(
+            key=key,
+            targets=frozenset(s for s in slugs if s),
+            country_only=frozenset(
+                _slug(c) for c in config.COUNTRY_ONLY_LOCATIONS if _slug(c)
+            ),
+        )
+    return _city_cache["targets"], _city_cache["country_only"]
 
 
 def _slug_has_token(haystack, needle):
@@ -237,12 +253,13 @@ def passes_city_filter(city):
     lowered = city.lower()
     if any(term in lowered for term in config.REMOTE_TERMS):
         return True
+    targets, country_only = _city_targets()
     city_slug = _slug(city)
-    # A bare country ("NL", "Deutschland") names no city at all -- treat it
-    # like an unknown location rather than a mismatch.
-    if city_slug in _COUNTRY_ONLY:
+    # A bare ACTIVE country ("DE", "Deutschland") names no city at all --
+    # treat it like an unknown location rather than a mismatch.
+    if city_slug in country_only:
         return True
-    return any(_slug_has_token(city_slug, target) for target in _CITY_TARGETS)
+    return any(_slug_has_token(city_slug, target) for target in targets)
 
 
 def dedupe_key(job):
