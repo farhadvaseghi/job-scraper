@@ -24,6 +24,17 @@ import os
 ACTIVE_COUNTRIES = ["Germany"]
 
 # ---------------------------------------------------------------------------
+# Sources to skip entirely this run. A name listed here is never scraped, and
+# is also left out of the "source returned nothing" health note -- otherwise
+# switching a source off would page you about it on every single run.
+#
+# StepStone is off for now (owner's request). The scraper itself works: its
+# last failure was the stale Chrome UA above, fixed and verified at 53 jobs
+# from 3 keywords. Re-enable by emptying this list.
+# ---------------------------------------------------------------------------
+DISABLED_SOURCES = ["StepStone"]
+
+# ---------------------------------------------------------------------------
 # Keywords, grouped by role area. German-first since these are German job
 # boards -- German terms surface far more results than English ones.
 # ---------------------------------------------------------------------------
@@ -532,7 +543,9 @@ MAX_JOBS_PER_SOURCE_PER_RUN = 60
 # others do not. Anything not listed here uses the default above.
 MAX_JOBS_PER_SOURCE_OVERRIDES = {
     "Arbeitsagentur": 80,
-    "Xing": 80,
+    "Xing": 120,
+    # kept so re-enabling StepStone restores the intended cap rather than
+    # silently falling back to the default
     "StepStone": 40,
 }
 

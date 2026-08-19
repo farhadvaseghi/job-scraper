@@ -80,7 +80,8 @@ Four knobs in `config.py`, in rough order of impact:
 - **Freshness window**: change `MAX_AGE_DAYS` in `config.py`.
 - **Permanent-only filter**: edit `TEMP_AGENCY_TERMS` in `config.py` to add more staffing-agency names you keep seeing slip through. The fixed-term ("befristet") exclusion is handled separately in `scrapers/common.py` and doesn't need editing.
 - **Defense/military exclusion**: edit `DEFENSE_COMPANIES` in `config.py` to add employers you want excluded.
-- **Per-source volume**: `MAX_JOBS_PER_SOURCE_OVERRIDES` in `config.py` sets a cap per source (currently Arbeitsagentur 80, Xing 80, StepStone 40, everything else 60).
+- **Turning a source off**: add its name to `DISABLED_SOURCES` in `config.py`. It is then never scraped, and never counted as "returned nothing" by the health note. StepStone is currently off.
+- **Per-source volume**: `MAX_JOBS_PER_SOURCE_OVERRIDES` in `config.py` sets a cap per source (currently Arbeitsagentur 80, Xing 120, StepStone 40, everything else 60).
 - **If StepStone reports 0 jobs**: check `USER_AGENT` in `config.py` before anything else. StepStone serves a 403 "Access Denied" to outdated browser versions, which looks exactly like an IP ban but is fixed by bumping the Chrome version in that string. The log prints the HTTP status and page title on an empty result so you can tell the difference.
 - **If a source stops returning results**: check the Actions run log first -- each source logs its own count and any error, so you can see exactly which one failed and why. A source that collects nothing also posts a health note to the channel.
 

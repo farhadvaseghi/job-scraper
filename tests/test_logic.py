@@ -453,7 +453,7 @@ class AutomotivePriority(unittest.TestCase):
 class PerSourceCaps(unittest.TestCase):
     def test_overrides_apply(self):
         self.assertEqual(config.cap_for("Arbeitsagentur"), 80)
-        self.assertEqual(config.cap_for("Xing"), 80)
+        self.assertEqual(config.cap_for("Xing"), 120)
         self.assertEqual(config.cap_for("StepStone"), 40)
 
     def test_unlisted_source_falls_back_to_default(self):
@@ -467,6 +467,33 @@ class PerSourceCaps(unittest.TestCase):
             cap = config.cap_for(source)
             self.assertIsInstance(cap, int)
             self.assertGreater(cap, 0)
+
+
+class DisabledSources(unittest.TestCase):
+    def test_stepstone_is_off(self):
+        self.assertIn("StepStone", config.DISABLED_SOURCES)
+
+    def test_disabled_source_is_not_scraped(self):
+        import main
+        self.assertNotIn("StepStone", [n for n, _ in main.SOURCES])
+
+    def test_the_others_still_run(self):
+        import main
+        names = [n for n, _ in main.SOURCES]
+        for expected in ("Arbeitsagentur", "Indeed", "Xing"):
+            self.assertIn(expected, names)
+
+    def test_disabled_source_cannot_trigger_the_health_note(self):
+        """The note is built from SOURCES, so an off source is invisible to
+        it -- otherwise switching one off would page on every run."""
+        import main
+        collected = {"Arbeitsagentur": 5, "Indeed": 5, "Xing": 5}
+        dead = [n for n, _ in main.SOURCES if not collected.get(n)]
+        self.assertEqual(dead, [])
+
+    def test_still_recoverable_from_all_sources(self):
+        import main
+        self.assertIn("StepStone", [n for n, _ in main.ALL_SOURCES])
 
 
 class Prune(unittest.TestCase):

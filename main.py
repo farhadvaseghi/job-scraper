@@ -27,11 +27,20 @@ from scrapers import arbeitsagentur, indeed, stepstone, xing
 
 log = get_logger("main")
 
-SOURCES = [
+ALL_SOURCES = [
     ("Arbeitsagentur", arbeitsagentur.scrape),
     ("Indeed", indeed.scrape),
     ("StepStone", stepstone.scrape),
     ("Xing", xing.scrape),
+]
+
+# A source switched off in config.DISABLED_SOURCES is dropped here rather than
+# skipped later, so it is invisible to everything downstream -- including the
+# "returned nothing" health note, which would otherwise fire for a source that
+# was never meant to run.
+SOURCES = [
+    (name, fn) for name, fn in ALL_SOURCES
+    if name not in config.DISABLED_SOURCES
 ]
 
 
@@ -39,6 +48,10 @@ def run():
     all_jobs = []
     failed_sources = []
     collected = {}
+
+    disabled = [n for n, _ in ALL_SOURCES if n not in dict(SOURCES)]
+    if disabled:
+        log.info("Sources disabled in config: %s", ", ".join(disabled))
 
     for name, scrape_fn in SOURCES:
         log.info("Running scraper: %s", name)
