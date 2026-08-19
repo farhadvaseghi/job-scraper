@@ -118,13 +118,17 @@ def _card_fields(card, text):
     )
 
 
-def _search_one(page, keyword, location=None):
+def _search_one(page, keyword, location=None, page_num=1):
     from urllib.parse import urlencode
 
     params = {"keywords": keyword}
     if location:
         # Verified: location=Wien returns 21 cards, all in Vienna.
         params["location"] = location
+    if page_num > 1:
+        # Verified: `page` returns a genuinely different set of 20 postings.
+        # (`offset` is ignored -- it silently re-serves page 1.)
+        params["page"] = page_num
     url = config.XING_SEARCH_URL + "?" + urlencode(params)
     page.goto(url, timeout=30000, wait_until="domcontentloaded")
     try:
@@ -203,14 +207,31 @@ def scrape():
             ]
 
             for location, keyword in searches:
-                try:
-                    results = _search_one(page, keyword, location)
-                except Exception as exc:
-                    log.warning(
-                        "Xing search failed for %r (location=%s): %s",
-                        keyword, location or "default", exc,
-                    )
-                    continue
+                # Page through the results instead of only ever reading the
+                # first 20. Without this the source reaches at most
+                # 20 x keywords postings TOTAL and then goes dry: once those
+                # are in the seen-store it reports almost nothing new, which
+                # looks like a broken scraper but is just exhausted reach.
+                results = []
+                for page_num in range(1, config.XING_MAX_PAGES + 1):
+                    try:
+                        batch = _search_one(page, keyword, location, page_num)
+                    except Exception as exc:
+                        log.warning(
+                            "Xing search failed for %r (location=%s, page %d): %s",
+                            keyword, location or "default", page_num, exc,
+                        )
+                        break
+                    if not batch:
+                        break
+                    fresh = [b for b in batch if b["url"] not in seen_urls]
+                    results.extend(batch)
+                    # Xing serves page 1 again for an out-of-range page, so a
+                    # page that adds nothing new means we have reached the end.
+                    if not fresh:
+                        break
+                    if page_num < config.XING_MAX_PAGES:
+                        time.sleep(config.REQUEST_DELAY_SECONDS)
 
                 for item in results:
                     url = item["url"]

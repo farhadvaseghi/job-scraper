@@ -469,6 +469,55 @@ class PerSourceCaps(unittest.TestCase):
             self.assertGreater(cap, 0)
 
 
+class XingPagination(unittest.TestCase):
+    def test_max_pages_configured(self):
+        self.assertGreaterEqual(config.XING_MAX_PAGES, 2,
+                                "reading only page 1 caps Xing's total reach")
+
+    def test_page_param_only_added_after_page_one(self):
+        """Xing ignores `offset` and re-serves page 1; `page` is the real one."""
+        import inspect
+        from scrapers import xing
+        src = inspect.getsource(xing._search_one)
+        self.assertIn('params["page"] = page_num', src)
+        self.assertIn("page_num > 1", src)
+
+
+class RunSummary(unittest.TestCase):
+    """A source that sends nothing must say so, and say which kind."""
+
+    def _summary(self, collected, jobs_by_source, failed, sources):
+        quiet = []
+        for name in sources:
+            if len(jobs_by_source.get(name, [])):
+                continue
+            raw = collected.get(name, 0)
+            if name in failed:
+                quiet.append(f"crashed:{name}")
+            elif not raw:
+                quiet.append(f"broken:{name}")
+            else:
+                quiet.append(f"nothing-new:{name}")
+        return quiet
+
+    def test_distinguishes_broken_from_nothing_new(self):
+        out = self._summary(
+            collected={"A": 0, "B": 500, "C": 3},
+            jobs_by_source={"A": [], "B": [], "C": [object()]},
+            failed=[],
+            sources=["A", "B", "C"],
+        )
+        self.assertEqual(out, ["broken:A", "nothing-new:B"])
+
+    def test_crash_takes_precedence(self):
+        out = self._summary({"A": 0}, {"A": []}, ["A"], ["A"])
+        self.assertEqual(out, ["crashed:A"])
+
+    def test_delivering_source_is_not_reported(self):
+        out = self._summary({"A": 10}, {"A": [object()]}, [], ["A"])
+        self.assertEqual(out, [])
+
+
 class DisabledSources(unittest.TestCase):
     def test_stepstone_is_off(self):
         self.assertIn("StepStone", config.DISABLED_SOURCES)

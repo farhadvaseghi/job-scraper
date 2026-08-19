@@ -83,6 +83,8 @@ Four knobs in `config.py`, in rough order of impact:
 - **Turning a source off**: add its name to `DISABLED_SOURCES` in `config.py`. It is then never scraped, and never counted as "returned nothing" by the health note. StepStone is currently off.
 - **Per-source volume**: `MAX_JOBS_PER_SOURCE_OVERRIDES` in `config.py` sets a cap per source (currently Arbeitsagentur 80, Xing 120, StepStone 40, everything else 60).
 - **If StepStone reports 0 jobs**: check `USER_AGENT` in `config.py` before anything else. StepStone serves a 403 "Access Denied" to outdated browser versions, which looks exactly like an IP ban but is fixed by bumping the Chrome version in that string. The log prints the HTTP status and page title on an empty result so you can tell the difference.
+- **If a source goes quiet**: every run posts a summary naming any source that sent nothing, and why -- crashed, collected 0 (broken), or found results but nothing new. "Nothing new" is normal once a source's reachable postings are all in the seen-store.
+- **Pagination**: `XING_MAX_PAGES` (3). Xing serves 20 results per page; reading only page 1 caps its total reach and makes it look broken once exhausted.
 - **If a source stops returning results**: check the Actions run log first -- each source logs its own count and any error, so you can see exactly which one failed and why. A source that collects nothing also posts a health note to the channel.
 
 ## Costs

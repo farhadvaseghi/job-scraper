@@ -131,25 +131,38 @@ def run():
     dedupe.save_seen(seen)
     log.info("Marked %d delivered job(s) as seen", len(sent_jobs))
 
-    # Tell the channel when a source produced nothing. A source that quietly
-    # returns 0 looks identical to "no new jobs today" in the digest, which is
-    # how the Arbeitsagentur scraper went on reading v4 field names against a
-    # v6 response -- collecting zero on every run -- without anyone noticing.
+    # Report every source that contributed nothing, and say WHY. In the digest
+    # a silent source is indistinguishable from "nothing new today", which is
+    # how the Arbeitsagentur scraper sat at zero for an unknown number of runs
+    # (reading v4 field names against a v6 response) without anyone noticing.
+    #
+    # The two causes need different reactions, so they are worded differently:
+    #   collected 0            -> the scraper is broken, go read the log
+    #   collected N, 0 new     -> working fine, everything was already sent
     # Sent last and its result ignored, so it cannot affect dedup accounting.
-    dead = [name for name, _ in SOURCES if not collected.get(name)]
-    if dead:
-        detail = ", ".join(
-            f"{name}{' (crashed)' if name in failed_sources else ''}"
-            for name in dead
-        )
-        log.warning("Sources that returned nothing this run: %s", detail)
+    quiet = []
+    for name, _ in SOURCES:
+        if len(jobs_by_source.get(name, [])):
+            continue
+        raw = collected.get(name, 0)
+        if name in failed_sources:
+            quiet.append(f"❌ <b>{name}</b> — crashed, check the Actions log")
+        elif not raw:
+            quiet.append(f"⚠️ <b>{name}</b> — collected 0 postings, likely broken")
+        else:
+            quiet.append(
+                f"✅ <b>{name}</b> — {raw} found, but nothing new "
+                f"(all already sent or filtered out)"
+            )
+
+    if quiet:
+        log.warning("Sources with nothing to send: %s", " | ".join(quiet))
         try:
             telegram_notify.send_note(
-                f"⚠️ <b>Scraper health</b>: no results from {detail}. "
-                f"Check the Actions log."
+                "<b>Run summary</b>\n" + "\n".join(quiet)
             )
         except Exception as exc:  # never let the note break the run
-            log.warning("Could not send the health note: %s", exc)
+            log.warning("Could not send the run-summary note: %s", exc)
 
     if not ok:
         log.error("Telegram send reported failures -- check logs above")

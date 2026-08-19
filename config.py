@@ -152,6 +152,12 @@ _XING_LOCATIONS_BY_COUNTRY = [
     ("Wien", "Austria"),
     ("Zürich", "Switzerland"),
 ]
+# Xing serves 20 results per page and paginates with `page=N` (an `offset`
+# param is silently ignored and re-serves page 1). Reading only page 1 caps
+# the source at 20 x keywords postings EVER -- after which it reports almost
+# nothing new, which reads as a broken scraper but is just exhausted reach.
+XING_MAX_PAGES = 3
+
 XING_LOCATIONS = [
     location for location, country in _XING_LOCATIONS_BY_COUNTRY
     if country in ACTIVE_COUNTRIES
