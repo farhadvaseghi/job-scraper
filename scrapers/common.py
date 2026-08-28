@@ -307,6 +307,51 @@ def dedupe_key(job):
     return f"{job['source']}::{normalize_url(job['url'])}"
 
 
+# The stable, board-assigned identifier inside a job URL. Everything else in
+# the URL is cosmetic and DOES change between runs:
+#   Xing     /jobs/dortmund-engineer-embedded-software-155264617
+#            /jobs/koeln-engineer-embedded-software-155264617     <- same job
+#   Xing     /jobs/berlin-multimodal-sensing-and-fusion-engineer-156870529
+#            /jobs/berlin-multimodal-sensing-fusion-engineer-156870529
+#   StepStone --Embedded-Linux-Entwickler-m-w-d-Leipzig-...--14388293-inline.html
+#            --Embedded-Linux-Entwickler-m-w-d-Rohrteichstrasse-...--14388293-inline.html
+# Deduping on the full URL re-sent all of those. Deduping on the id does not.
+_JOB_ID_PATTERNS = {
+    "Xing": re.compile(r"/jobs/.*?-(\d+)/?$"),
+    "StepStone": re.compile(r"--(\d+)-inline"),
+    "Indeed": re.compile(r"[?&]jk=([^&]+)"),
+    "Arbeitsagentur": re.compile(r"/jobdetail/(.+?)/?$"),
+}
+
+
+def job_id_key(job):
+    """Source + the board's own posting id, or None if it can't be found.
+
+    This is the strongest dedup signal available: the id survives the title
+    being reworded and the posting being re-listed under a different city.
+    """
+    source = to_text(job.get("source"))
+    url = normalize_url(job.get("url"))
+    rx = _JOB_ID_PATTERNS.get(source)
+    if not rx or not url:
+        return None
+    m = rx.search(url)
+    if not m:
+        return None
+    return f"id::{source}::{m.group(1).lower()}"
+
+
+def normalize_city_for_key(city):
+    """Just the city, for dedup purposes.
+
+    Boards disagree on how much administrative detail to append -- Indeed says
+    "Berlin, BE, DE" where every other source says "Berlin". That difference
+    alone made the same posting look like two, so the content key only ever
+    uses the part before the first comma.
+    """
+    return to_text(city).split(",")[0].strip()
+
+
 def content_key(job):
     """Source-INDEPENDENT identity for a posting: title + company + city.
 
@@ -315,6 +360,8 @@ def content_key(job):
     two genuinely different openings with the same title at the same big
     employer aren't collapsed into one.
     """
-    return "content::" + "|".join(
-        _slug(job.get(field)) for field in ("title", "company", "city")
-    )
+    return "content::" + "|".join([
+        _slug(job.get("title")),
+        _slug(job.get("company")),
+        _slug(normalize_city_for_key(job.get("city"))),
+    ])

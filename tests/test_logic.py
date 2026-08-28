@@ -22,6 +22,8 @@ from scrapers.common import (
     automotive_score,
     content_key,
     dedupe_key,
+    job_id_key,
+    normalize_city_for_key,
     make_job,
     normalize_url,
     passes_city_filter,
@@ -543,6 +545,101 @@ class DisabledSources(unittest.TestCase):
     def test_still_recoverable_from_all_sources(self):
         import main
         self.assertIn("StepStone", [n for n, _ in main.ALL_SOURCES])
+
+
+class JobIdentity(unittest.TestCase):
+    """The board's posting id, not the cosmetic URL, is the dedup anchor."""
+
+    def test_extracts_per_source(self):
+        cases = [
+            ("Xing", "https://www.xing.com/jobs/berlin-dev-156870529",
+             "id::Xing::156870529"),
+            ("StepStone",
+             "https://www.stepstone.de/stellenangebote--Dev-Berlin--14388293-inline.html",
+             "id::StepStone::14388293"),
+            ("Indeed", "https://de.indeed.com/viewjob?jk=abc123&from=serp",
+             "id::Indeed::abc123"),
+            ("Arbeitsagentur",
+             "https://www.arbeitsagentur.de/jobsuche/jobdetail/10001-1003490376-S",
+             "id::Arbeitsagentur::10001-1003490376-s"),
+        ]
+        for source, url, expected in cases:
+            self.assertEqual(job_id_key(make_job(source, "T", "C", "X", url)),
+                             expected, source)
+
+    def test_url_slug_change_keeps_the_same_identity(self):
+        """Xing re-lists one posting under a different city slug."""
+        a = make_job("Xing", "Engineer", "C", "Dortmund",
+                     "https://www.xing.com/jobs/dortmund-engineer-embedded-software-155264617")
+        b = make_job("Xing", "Engineer", "C", "Köln",
+                     "https://www.xing.com/jobs/koeln-engineer-embedded-software-155264617")
+        self.assertNotEqual(dedupe_key(a), dedupe_key(b))   # URLs differ...
+        self.assertEqual(job_id_key(a), job_id_key(b))      # ...identity does not
+        self.assertEqual(len(dedupe.filter_new([a, b], {})), 1)
+
+    def test_unknown_source_has_no_identity(self):
+        self.assertIsNone(job_id_key(make_job("Other", "T", "C", "X",
+                                              "https://x.test/j")))
+
+    def test_missing_url_is_safe(self):
+        self.assertIsNone(job_id_key(make_job("Xing", "T", "C", "X", "")))
+
+
+class CityKeyNormalisation(unittest.TestCase):
+    def test_indeed_geo_suffix_is_dropped(self):
+        self.assertEqual(normalize_city_for_key("Berlin, BE, DE"), "Berlin")
+        self.assertEqual(normalize_city_for_key("Garching bei München, BY, DE"),
+                         "Garching bei München")
+
+    def test_plain_city_unchanged(self):
+        self.assertEqual(normalize_city_for_key("Berlin"), "Berlin")
+
+    def test_same_job_across_boards_collapses(self):
+        """Indeed says 'Berlin, BE, DE'; every other board says 'Berlin'."""
+        i = make_job("Indeed", "AI/ML Engineer", "MOTOR Ai", "Berlin, BE, DE",
+                     "https://de.indeed.com/viewjob?jk=z1")
+        x = make_job("Xing", "AI/ML Engineer", "MOTOR Ai", "Berlin",
+                     "https://www.xing.com/jobs/berlin-ai-ml-999")
+        self.assertEqual(content_key(i), content_key(x))
+        self.assertEqual(len(dedupe.filter_new([i, x], {})), 1)
+
+
+class StoreMigration(unittest.TestCase):
+    """Changing the key format must not re-send the backlog."""
+
+    def _legacy(self):
+        return {
+            "Xing::https://www.xing.com/jobs/berlin-dev-156870529": "2026-08-01T00:00:00+00:00",
+            "Indeed::https://de.indeed.com/viewjob?jk=abc": "2026-08-01T00:00:00+00:00",
+            "content::dev|acme|berlin-be-de": "2026-08-01T00:00:00+00:00",
+        }
+
+    def test_adds_identity_keys(self):
+        seen = dedupe.migrate(self._legacy())
+        self.assertIn("id::Xing::156870529", seen)
+        self.assertIn("id::Indeed::abc", seen)
+
+    def test_upgrades_content_keys_to_normalised_city(self):
+        seen = dedupe.migrate(self._legacy())
+        self.assertIn("content::dev|acme|berlin", seen)
+        self.assertIn("content::dev|acme|berlin-be-de", seen,
+                      "the old key must be kept, not replaced")
+
+    def test_previously_sent_job_is_still_blocked(self):
+        seen = dedupe.migrate(self._legacy())
+        again = make_job("Xing", "Dev", "ACME", "Berlin",
+                         "https://www.xing.com/jobs/berlin-dev-156870529")
+        self.assertEqual(dedupe.filter_new([again], seen), [])
+
+    def test_is_idempotent(self):
+        once = dedupe.migrate(self._legacy())
+        size = len(once)
+        twice = dedupe.migrate(once)
+        self.assertEqual(len(twice), size)
+
+    def test_preserves_original_timestamps(self):
+        seen = dedupe.migrate(self._legacy())
+        self.assertEqual(seen["id::Xing::156870529"], "2026-08-01T00:00:00+00:00")
 
 
 class Prune(unittest.TestCase):
