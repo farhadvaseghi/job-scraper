@@ -74,7 +74,8 @@ Four knobs in `config.py`, in rough order of impact:
 
 ## Adjusting things later
 
-- **Keywords / cities**: edit the lists in `config.py`, commit, push. `KEYWORDS` is used for the German searches; `DACH_KEYWORDS` (Austria/Switzerland) and `INTERNATIONAL_KEYWORDS` (Netherlands) are smaller subsets, kept short so the run doesn't hit the workflow timeout.
+- **Keywords**: `KEYWORDS_BY_SOURCE` in `config.py` holds one list per board, because the boards do not agree about which language wins. Arbeitsagentur is the German federal register, so English titles find almost nothing there ("Robotics Engineer" returns 2 in-scope postings, "Robotik" returns 11); Xing matches over an English-heavy tech corpus and does the reverse. Each list was measured live one keyword at a time -- a keyword is dropped from a board only when it returns *zero raw results* there. `config.keywords_for(source)` is what the scrapers call. `KEYWORDS` is the union and the fallback for any board without a measured list.
+- **Cities**: edit `CITIES_BY_COUNTRY` in `config.py`. `DACH_KEYWORDS` (Austria/Switzerland) and `INTERNATIONAL_KEYWORDS` (Netherlands) stay shared subsets -- those markets are picked by language, not by board, and are currently inactive.
 - **Countries**: `INDEED_COUNTRIES`, `STEPSTONE_SEARCHES` and `XING_LOCATIONS` in `config.py`.
 - **Automatic runs**: the workflow is manual-trigger only. To run it on a schedule, add a `schedule:` block with a `cron` line to `.github/workflows/job_scraper.yml` (times are UTC).
 - **Freshness window**: change `MAX_AGE_DAYS` in `config.py`.
@@ -84,6 +85,7 @@ Four knobs in `config.py`, in rough order of impact:
 - **Per-source volume**: `MAX_JOBS_PER_SOURCE_OVERRIDES` in `config.py` sets a cap per source (currently Arbeitsagentur 80, Xing 120, StepStone 40, everything else 60).
 - **If StepStone reports 0 jobs**: check `USER_AGENT` in `config.py` before anything else. StepStone serves a 403 "Access Denied" to outdated browser versions, which looks exactly like an IP ban but is fixed by bumping the Chrome version in that string. The log prints the HTTP status and page title on an empty result so you can tell the difference.
 - **If a source goes quiet**: every run posts a summary naming any source that sent nothing, and why -- crashed, collected 0 (broken), or found results but nothing new. "Nothing new" is normal once a source's reachable postings are all in the seen-store.
+- **Xing "Einfach bewerben" postings**: excluded by default (`XING_EXCLUDE_EASY_APPLY`). These apply through Xing with a stored profile rather than the employer's own process. The signal is the apply button's *label*, not its presence -- every card has an apply button, so matching on the element alone would drop everything. Roughly a third of Xing cards are easy-apply.
 - **Pagination**: `XING_MAX_PAGES` (3). Xing serves 20 results per page; reading only page 1 caps its total reach and makes it look broken once exhausted.
 - **If a source stops returning results**: check the Actions run log first -- each source logs its own count and any error, so you can see exactly which one failed and why. A source that collects nothing also posts a health note to the channel.
 

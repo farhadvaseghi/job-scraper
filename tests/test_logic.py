@@ -220,7 +220,12 @@ class RelevanceFilter(unittest.TestCase):
                   "Fahrzeugtester / Testfahrer Bus (m/w/d)",
                   "Quereinstieg englischsprachiger Fahrer/Testfahrer",
                   "Werkstudent Label Quality Engineering - Autonomous Driving",
-                  "Praktikum Software Engineering"):
+                  "Praktikum Software Engineering",
+                  # skilled trade, not an engineering role -- these arrived
+                  # in bulk with the "Automatisierungstechnik" keyword
+                  "Elektroniker (m/w/d) Automatisierungstechnik",
+                  "Elektroniker fuer Automatisierungstechnik (m/w/d)",
+                  "++ELEKTRONIKER (m/w/d) - Automatisierungstechnik"):
             self.assertFalse(passes_relevance_filter(t), t)
 
     def test_engineering_titles_with_similar_stems_survive(self):
@@ -228,7 +233,12 @@ class RelevanceFilter(unittest.TestCase):
         for t in ("Mechatronik-Ingenieur (m/w/d)",
                   "Entwicklungsingenieur Fahrerassistenzsysteme",
                   "Test Automation Engineer",
-                  "Software Test Engineer Automotive"):
+                  "Software Test Engineer Automotive",
+                  # "elektroniker" must not swallow the engineering titles
+                  "Elektronikingenieur - Automatisierungstechnik (m/w/d)",
+                  "Entwicklungsingenieur Elektronik",
+                  "Ingenieur (m/w/d) fuer Automatisierungstechnik",
+                  "Hardwareentwickler Elektronik & Sensorik (w/m/d)"):
             self.assertTrue(passes_relevance_filter(t), t)
 
     def test_plain_data_titles_still_excluded(self):
@@ -831,6 +841,149 @@ class TelegramDelivery(unittest.TestCase):
         ok, delivered = telegram_notify.send_digest({"Indeed": self._jobs("Indeed")})
         self.assertFalse(ok)
         self.assertEqual(delivered, set())
+
+
+class _FakeElement:
+    """Minimal stand-in for a Playwright element handle."""
+
+    def __init__(self, text, buttons=()):
+        self._text = text
+        self._buttons = [_FakeElement(b) for b in buttons]
+
+    def inner_text(self):
+        return self._text
+
+    def query_selector_all(self, selector):
+        if selector == "[data-testid='apply-button']":
+            return self._buttons
+        return []
+
+
+class XingEasyApply(unittest.TestCase):
+    """Xing's "Einfach bewerben" postings are excluded (owner's request).
+
+    The signal is the apply button's LABEL. Every card has an apply button --
+    reading the testid alone would drop everything.
+    """
+
+    def setUp(self):
+        from scrapers import xing
+        self.xing = xing
+
+    def test_easy_apply_button_is_detected(self):
+        card = _FakeElement("Software Engineer\nACME\nBerlin",
+                            buttons=["Einfach bewerben"])
+        self.assertTrue(self.xing._is_easy_apply(card, card.inner_text()))
+
+    def test_employer_site_button_is_kept(self):
+        card = _FakeElement("Software Engineer\nACME\nBerlin",
+                            buttons=["Zur Arbeitgeber-Website"])
+        self.assertFalse(self.xing._is_easy_apply(card, card.inner_text()))
+
+    def test_card_without_any_apply_button_is_kept(self):
+        """5-7 of every 20 live cards have no apply button. Unknown -> keep."""
+        card = _FakeElement("Software Engineer\nACME\nBerlin")
+        self.assertFalse(self.xing._is_easy_apply(card, card.inner_text()))
+
+    def test_any_of_several_buttons_matching_is_enough(self):
+        """Xing renders a desktop and a mobile copy of the same button."""
+        card = _FakeElement("Software Engineer",
+                            buttons=["Zur Arbeitgeber-Website", "Einfach bewerben"])
+        self.assertTrue(self.xing._is_easy_apply(card, card.inner_text()))
+
+    def test_falls_back_to_card_text_if_the_testid_changes(self):
+        """A renamed testid must degrade to still working, not to passing
+        every easy-apply posting through."""
+        card = _FakeElement("Software Engineer\nACME\nBerlin\nEinfach bewerben")
+        self.assertTrue(self.xing._is_easy_apply(card, card.inner_text()))
+
+    def test_detection_is_case_insensitive(self):
+        card = _FakeElement("x", buttons=["EINFACH BEWERBEN"])
+        self.assertTrue(self.xing._is_easy_apply(card, "x"))
+
+    def test_filter_is_on_and_labels_are_configured(self):
+        self.assertTrue(config.XING_EXCLUDE_EASY_APPLY)
+        self.assertIn("einfach bewerben",
+                      [l.lower() for l in config.XING_EASY_APPLY_LABELS])
+
+
+class PerSourceKeywords(unittest.TestCase):
+    """Each board is searched with the keywords measured to work ON IT.
+
+    The boards do not agree about which language wins -- see the measurements
+    in config.KEYWORDS_BY_SOURCE -- so one shared list is wrong everywhere.
+    """
+
+    def test_every_active_source_has_its_own_list(self):
+        for source in ("Arbeitsagentur", "Indeed", "Xing"):
+            self.assertIn(source, config.KEYWORDS_BY_SOURCE)
+            self.assertTrue(config.keywords_for(source))
+
+    def test_unlisted_source_falls_back_to_the_shared_list(self):
+        self.assertEqual(config.keywords_for("Some New Board"), config.KEYWORDS)
+
+    def test_the_measured_lists_actually_differ(self):
+        """If two boards end up with the same list, either a measurement was
+        never applied or a placeholder was left in."""
+        lists = {s: tuple(config.keywords_for(s))
+                 for s in ("Arbeitsagentur", "Indeed", "Xing")}
+        self.assertEqual(len(set(lists.values())), 3, lists.keys())
+        for source, words in lists.items():
+            self.assertNotEqual(tuple(config.KEYWORDS), words,
+                                f"{source} is still the un-measured union")
+
+    def test_secondary_markets_are_chosen_by_language_not_by_board(self):
+        """AT/CH and NL are picked by market language; the per-source tuning
+        was measured on the German market only."""
+        for source in ("Arbeitsagentur", "Indeed", "Xing", "StepStone"):
+            self.assertEqual(config.keywords_for(source, "dach"),
+                             config.DACH_KEYWORDS)
+            self.assertEqual(config.keywords_for(source, "international"),
+                             config.INTERNATIONAL_KEYWORDS)
+
+    def test_keywords_is_the_union_of_the_per_source_lists(self):
+        """KEYWORDS is the fallback, so it must not be missing anything a
+        source actually searches for."""
+        for source, words in config.KEYWORDS_BY_SOURCE.items():
+            for kw in words:
+                self.assertIn(kw, config.KEYWORDS,
+                              f"{kw!r} ({source}) is missing from KEYWORDS")
+
+    def test_no_duplicates_within_a_source(self):
+        for source, words in config.KEYWORDS_BY_SOURCE.items():
+            lowered = [w.lower() for w in words]
+            self.assertEqual(len(lowered), len(set(lowered)),
+                             f"{source} searches the same keyword twice")
+
+    def test_measured_dead_keywords_are_not_searched(self):
+        """Regression guard. These returned ZERO RAW results on that board on
+        2026-09-04 -- the site does not understand the term there, so the
+        search is pure runtime cost. Re-adding one needs a re-measurement."""
+        dead = {
+            "Arbeitsagentur": ["Autonomous Systems Engineer", "DSP Engineer",
+                               "SLAM Engineer"],
+            "Indeed": ["ADAS Engineer", "DSP Engineer", "FPGA-Ingenieur",
+                       "KI-Ingenieur", "Robotik Softwareentwickler",
+                       "SLAM Engineer"],
+        }
+        for source, words in dead.items():
+            searched = [w.lower() for w in config.keywords_for(source)]
+            for kw in words:
+                self.assertNotIn(kw.lower(), searched,
+                                 f"{kw!r} returns nothing on {source}")
+
+    def test_each_scraper_asks_for_its_own_keywords(self):
+        """The whole change is worthless if a scraper still reads
+        config.KEYWORDS directly."""
+        import inspect
+        from scrapers import arbeitsagentur, indeed, stepstone, xing
+        for mod, name in ((arbeitsagentur, "Arbeitsagentur"), (indeed, "Indeed"),
+                          (stepstone, "StepStone"), (xing, "Xing")):
+            src = inspect.getsource(mod)
+            self.assertIn("keywords_for(", src,
+                          f"{name} does not use config.keywords_for()")
+            self.assertNotIn("config.KEYWORDS", src,
+                             f"{name} still reads the shared keyword list")
 
 
 if __name__ == "__main__":

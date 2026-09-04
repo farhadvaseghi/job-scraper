@@ -44,6 +44,7 @@ KEYWORD_GROUPS = {
         "Embedded Systems Engineer",
         "Firmware Engineer",
         "Embedded Softwareentwickler",
+        "Embedded Entwickler",
     ],
     "Robotics / Autonomous Systems": [
         "Robotics Engineer",
@@ -52,19 +53,23 @@ KEYWORD_GROUPS = {
         "SLAM Engineer",
         "Robotik-Ingenieur",
         "Autonomes Fahren",
+        "Robotik",
     ],
     # NB: no "Data Scientist" / "Data Engineer" here -- data roles are out of
     # scope on purpose, see TITLE_EXCLUDE_TERMS below.
     "Computer Vision / ML / AI": [
         "Computer Vision Engineer",
+        "Computer Vision",
         "Machine Learning Engineer",
         "Deep Learning Engineer",
         "KI-Ingenieur",
+        "Bildverarbeitung",
     ],
     "ADAS / Automotive": [
         "ADAS Engineer",
         "Automotive Software Engineer",
         "Sensor Fusion Engineer",
+        "Fahrerassistenzsysteme",
         "DSP Engineer",
     ],
     "Test Automation / QA": [
@@ -72,6 +77,8 @@ KEYWORD_GROUPS = {
         "Software Test Engineer",
         "QA Engineer",
         "Testautomatisierung",
+        "Testingenieur",
+        "Softwaretester",
     ],
     "FPGA / Digital Design": [
         "FPGA Engineer",
@@ -84,12 +91,15 @@ KEYWORD_GROUPS = {
         "Software Engineer",
         "Full-Stack Developer",
         "Softwareentwickler",
+        "Python Entwickler",
     ],
     "Automation / Process Control": [
         "Automation Engineer",
         "Process Control Engineer",
         "PLC Engineer",
         "Automatisierungsingenieur",
+        "Automatisierungstechnik",
+        "SPS-Programmierer",
     ],
 }
 
@@ -136,6 +146,191 @@ DACH_KEYWORDS = [
     "Automatisierungsingenieur",
 ]
 
+# ---------------------------------------------------------------------------
+# Per-source keywords for the HOME market (Germany)
+#
+# One shared keyword list was wrong for every board, because the boards do
+# not agree about which language wins. Measured live on 2026-09-04, one
+# keyword at a time, counting only postings that survive the relevance and
+# city filters:
+#
+#   keyword                  Arbeitsagentur   Indeed   Xing
+#   Robotics Engineer               2            7      10
+#   Robotik                        11            6       2
+#   KI-Ingenieur                    6            0       -
+#   SLAM Engineer                   0            0       7
+#
+# Arbeitsagentur is the German federal register and its postings are written
+# in German, so English titles find almost nothing there. Xing matches
+# fuzzily over an English-heavy tech corpus and does the reverse. Indeed sits
+# in between and understands both.
+#
+# Selection rule, deliberately conservative: a keyword is dropped from a
+# board only when it returned ZERO RAW results there -- i.e. the board does
+# not understand the term at all, which is a stable fact rather than a quiet
+# week. A term that returns postings which merely happen to be filtered out
+# today is KEPT. Additions had to contribute at least 3 postings that no
+# other keyword on that board already found.
+#
+# Xing is the exception and is trimmed harder: at ~27s per keyword (three
+# paginated Playwright loads) its keyword count is what threatens the
+# workflow timeout, so there it is the measured cover rather than the union.
+# Arbeitsagentur (~2s) and Indeed (~3s) are cheap enough to stay generous.
+#
+# KEYWORDS remains the union of all of these and is the fallback for any
+# board without a measured list -- currently StepStone, which is disabled and
+# so could not be measured.
+# ---------------------------------------------------------------------------
+KEYWORDS_BY_SOURCE = {
+    # Zero raw results here, so not searched: "Autonomous Systems Engineer",
+    # "SLAM Engineer", "DSP Engineer". Added on measured yield:
+    # "Automatisierungstechnik" (+22 postings no other keyword found),
+    # "Testingenieur" (+11), "SPS-Programmierer" (+10), "Bildverarbeitung" (+3).
+    "Arbeitsagentur": [
+        "Embedded Software Engineer",
+        "Embedded Systems Engineer",
+        "Firmware Engineer",
+        "Embedded Softwareentwickler",
+        "Robotics Engineer",
+        "Robotics Software Engineer",
+        "Robotik-Ingenieur",
+        "Autonomes Fahren",
+        "Computer Vision Engineer",
+        "Machine Learning Engineer",
+        "Deep Learning Engineer",
+        "KI-Ingenieur",
+        "Bildverarbeitung",
+        "ADAS Engineer",
+        "Automotive Software Engineer",
+        "Sensor Fusion Engineer",
+        "Test Automation Engineer",
+        "Software Test Engineer",
+        "QA Engineer",
+        "Testautomatisierung",
+        "Testingenieur",
+        "FPGA Engineer",
+        "FPGA-Ingenieur",
+        "RTL Design Engineer",
+        "Digital Design Engineer",
+        "Python Developer",
+        "Software Engineer",
+        "Full-Stack Developer",
+        "Softwareentwickler",
+        "Automation Engineer",
+        "Process Control Engineer",
+        "PLC Engineer",
+        "Automatisierungsingenieur",
+        "Automatisierungstechnik",
+        "SPS-Programmierer",
+    ],
+    # Zero raw results here, so not searched: "SLAM Engineer", "KI-Ingenieur",
+    # "ADAS Engineer", "DSP Engineer", "FPGA-Ingenieur" -- Indeed's German
+    # index simply has no such titles. Added on measured yield:
+    # "Python Entwickler" (+8), "Softwaretester" (+7), "Robotik" (+3).
+    "Indeed": [
+        "Embedded Software Engineer",
+        "Embedded Systems Engineer",
+        "Firmware Engineer",
+        "Embedded Softwareentwickler",
+        "Robotics Engineer",
+        "Robotics Software Engineer",
+        "Autonomous Systems Engineer",
+        "Robotik-Ingenieur",
+        "Robotik",
+        "Autonomes Fahren",
+        "Computer Vision Engineer",
+        "Machine Learning Engineer",
+        "Deep Learning Engineer",
+        "Automotive Software Engineer",
+        "Sensor Fusion Engineer",
+        "Test Automation Engineer",
+        "Software Test Engineer",
+        "QA Engineer",
+        "Testautomatisierung",
+        "Softwaretester",
+        "FPGA Engineer",
+        "RTL Design Engineer",
+        "Digital Design Engineer",
+        "Python Developer",
+        "Python Entwickler",
+        "Software Engineer",
+        "Full-Stack Developer",
+        "Softwareentwickler",
+        "Automation Engineer",
+        "Process Control Engineer",
+        "PLC Engineer",
+        "Automatisierungsingenieur",
+    ],
+    # Xing understands every term -- nothing returned zero raw here -- so
+    # this list is trimmed by MARGINAL value instead: every keyword below
+    # found at least 2 in-scope postings that no other keyword on this board
+    # found. The 9 shared keywords left out ("Softwareentwickler", "Robotik",
+    # "Robotik-Ingenieur", "ADAS Engineer", "Embedded Softwareentwickler",
+    # "Python Entwickler", "FPGA-Ingenieur", "SPS-Programmierer",
+    # "Automatisierungstechnik") added 7 postings between them, for roughly
+    # 5 minutes of runtime. Note how the German compounds cluster in that
+    # list: on Xing the English title is nearly always the better query, and
+    # the exception -- "Fahrerassistenzsysteme" beating "ADAS Engineer" -- is
+    # measured rather than guessed. These 35 cover 97% of everything the 50
+    # tested keywords could reach.
+    "Xing": [
+        "Embedded Software Engineer",
+        "Embedded Systems Engineer",
+        "Embedded Entwickler",
+        "Firmware Engineer",
+        "Robotics Engineer",
+        "Robotics Software Engineer",
+        "Autonomous Systems Engineer",
+        "SLAM Engineer",
+        "Autonomes Fahren",
+        "Computer Vision Engineer",
+        "Computer Vision",
+        "Machine Learning Engineer",
+        "Deep Learning Engineer",
+        "KI-Ingenieur",
+        "Bildverarbeitung",
+        "Automotive Software Engineer",
+        "Sensor Fusion Engineer",
+        "Fahrerassistenzsysteme",
+        "DSP Engineer",
+        "Test Automation Engineer",
+        "Software Test Engineer",
+        "QA Engineer",
+        "Testautomatisierung",
+        "Testingenieur",
+        "Softwaretester",
+        "FPGA Engineer",
+        "RTL Design Engineer",
+        "Digital Design Engineer",
+        "Python Developer",
+        "Software Engineer",
+        "Full-Stack Developer",
+        "Automation Engineer",
+        "Process Control Engineer",
+        "PLC Engineer",
+        "Automatisierungsingenieur",
+    ],
+}
+
+
+def keywords_for(source, scope="home"):
+    """Keywords to search on one board, in one market.
+
+    scope "home"          -- Germany, the per-source measured list
+    scope "dach"          -- Austria / Switzerland
+    scope "international" -- Netherlands
+
+    Only the home market is tuned per board. AT/CH/NL are picked by the
+    language of the market rather than by the board, and are currently
+    inactive (see ACTIVE_COUNTRIES), so there was nothing live to measure.
+    """
+    if scope == "dach":
+        return DACH_KEYWORDS
+    if scope == "international":
+        return INTERNATIONAL_KEYWORDS
+    return KEYWORDS_BY_SOURCE.get(source, KEYWORDS)
+
+
 # Which Indeed country domains to search. jobspy resolves these to the right
 # Indeed subdomain (de / nl / at / ch) -- verified present in its Country enum.
 INDEED_COUNTRIES = [
@@ -157,6 +352,28 @@ _XING_LOCATIONS_BY_COUNTRY = [
 # the source at 20 x keywords postings EVER -- after which it reports almost
 # nothing new, which reads as a broken scraper but is just exhausted reach.
 XING_MAX_PAGES = 3
+
+# ---------------------------------------------------------------------------
+# Drop Xing's "Einfach bewerben" (Easy apply) postings -- owner's request:
+# these apply through Xing with a stored profile rather than the employer's
+# own process, and he does not want them.
+#
+# Measured on the live site 2026-09-04: every card carries an
+# `[data-testid='apply-button']` whose LABEL is the signal -- "Einfach
+# bewerben" for easy-apply, "Zur Arbeitgeber-Website" otherwise. The testid
+# alone means nothing; both kinds have it. About 10-15% of cards are
+# easy-apply (4/20 and 2/20 on two sample searches), and 5-7 of 20 carry no
+# apply button at all -- those are KEPT, matching how every other filter here
+# treats an unknown value.
+# ---------------------------------------------------------------------------
+XING_EXCLUDE_EASY_APPLY = True
+
+XING_EASY_APPLY_LABELS = [
+    "einfach bewerben",
+    "easy apply",
+    "sofort bewerben",
+    "schnellbewerbung",
+]
 
 XING_LOCATIONS = [
     location for location, country in _XING_LOCATIONS_BY_COUNTRY
@@ -401,6 +618,13 @@ TITLE_EXCLUDE_TERMS = [
     "praktikant",
     "mechatroniker",
     "mechaniker",
+    # "Elektroniker fuer Automatisierungstechnik" is a skilled trade, not an
+    # engineering role. Surfaced when "Automatisierungstechnik" was added as
+    # a keyword -- it was the single biggest new source of postings on
+    # Arbeitsagentur and half of them were Elektroniker jobs. Safe against
+    # the engineering titles: "Elektronikingenieur" and "Entwicklungs-
+    # ingenieur Elektronik" do not contain "elektroniker".
+    "elektroniker",
     "testfahrer",
     "fahrzeugtester",
     "kraftfahrer",

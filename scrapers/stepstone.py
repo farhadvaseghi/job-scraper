@@ -361,8 +361,8 @@ def scrape():
             searches = [
                 (label, url_tpl, base, keyword)
                 for label, url_tpl, base in config.STEPSTONE_SEARCHES
-                for keyword in (config.KEYWORDS if label == "de"
-                                else config.DACH_KEYWORDS)
+                for keyword in config.keywords_for(
+                    "StepStone", "home" if label == "de" else "dach")
             ]
 
             barren = 0  # consecutive searches that yielded nothing

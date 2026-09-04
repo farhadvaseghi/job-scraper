@@ -48,15 +48,15 @@ def _search_one(keyword, country):
 
 
 def _keywords_for(country):
-    """Full keyword set at home, English-only subset abroad.
+    """Indeed's own measured keyword set at home, English-only subset abroad.
 
     The German compound terms return next to nothing on Indeed Netherlands,
     and each keyword is another slow request -- the full list across four
     countries would be ~128 calls and risk the workflow timeout.
     """
     if country == "Germany":
-        return config.KEYWORDS
-    return config.INTERNATIONAL_KEYWORDS
+        return config.keywords_for("Indeed")
+    return config.keywords_for("Indeed", "international")
 
 
 def scrape():

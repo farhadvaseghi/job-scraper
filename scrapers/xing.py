@@ -77,6 +77,33 @@ def _clean(text):
 _MORE_LOCATIONS_RE = re.compile(r"\s*\+\s*\d+\s*weitere\s*$", re.IGNORECASE)
 
 
+def _is_easy_apply(card, text):
+    """True when the card is one of Xing's "Einfach bewerben" postings.
+
+    The owner does not want these -- they apply through Xing with a stored
+    profile instead of the employer's own process.
+
+    The signal is the apply button's LABEL, not its presence: every card has
+    an `[data-testid='apply-button']`, reading either "Einfach bewerben" or
+    "Zur Arbeitgeber-Website". A card can carry more than one such button
+    (Xing renders a desktop and a mobile copy), so any one of them matching
+    is enough. Cards with no apply button at all -- 5 to 7 of every 20 --
+    are NOT easy-apply and are kept, like every other unknown value here.
+
+    The card text is checked too, so a renamed testid degrades to still
+    working rather than to silently passing everything through.
+    """
+    labels = [l.lower() for l in config.XING_EASY_APPLY_LABELS]
+    try:
+        for btn in card.query_selector_all("[data-testid='apply-button']"):
+            btn_text = _clean(btn.inner_text()).lower()
+            if any(label in btn_text for label in labels):
+                return True
+    except Exception:
+        pass
+    return any(label in (text or "").lower() for label in labels)
+
+
 def _card_fields(card, text):
     """Pull (title, company, city) out of one result card.
 
@@ -173,6 +200,7 @@ def _search_one(page, keyword, location=None, page_num=1):
                     "url": href,
                     "raw_age_text": raw_age,
                     "age_days": _age_to_days(raw_age),
+                    "easy_apply": _is_easy_apply(card, text),
                     "context_text": text,  # full card text, may mention contract type
                 }
             )
@@ -185,6 +213,7 @@ def _search_one(page, keyword, location=None, page_num=1):
 def scrape():
     jobs = []
     seen_urls = set()
+    easy_apply_dropped = 0
 
     try:
         from playwright.sync_api import sync_playwright
@@ -202,8 +231,8 @@ def scrape():
             searches = [
                 (location, keyword)
                 for location in config.XING_LOCATIONS
-                for keyword in (config.KEYWORDS if location is None
-                                else config.DACH_KEYWORDS)
+                for keyword in config.keywords_for(
+                    "Xing", "home" if location is None else "dach")
             ]
 
             for location, keyword in searches:
@@ -239,6 +268,10 @@ def scrape():
                         continue
                     seen_urls.add(url)
 
+                    if config.XING_EXCLUDE_EASY_APPLY and item.get("easy_apply"):
+                        easy_apply_dropped += 1
+                        continue
+
                     title = item["title"]
                     if not title or not passes_seniority_filter(title):
                         continue
@@ -269,6 +302,10 @@ def scrape():
             browser.close()
     except Exception as exc:
         log.error("Xing scraper crashed: %s", exc)
+
+    if easy_apply_dropped:
+        log.info("Xing: dropped %d 'Einfach bewerben' (easy-apply) posting(s)",
+                 easy_apply_dropped)
 
     if not jobs:
         log.warning(

@@ -217,7 +217,7 @@ def scrape():
     jobs = []
     seen_refnr = set()
 
-    for keyword in config.KEYWORDS:
+    for keyword in config.keywords_for("Arbeitsagentur"):
         try:
             results = _search_one(keyword)
         except Exception as exc:
