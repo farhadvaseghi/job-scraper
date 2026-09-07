@@ -241,6 +241,37 @@ class RelevanceFilter(unittest.TestCase):
                   "Hardwareentwickler Elektronik & Sensorik (w/m/d)"):
             self.assertTrue(passes_relevance_filter(t), t)
 
+    def test_full_stack_and_process_engineering_excluded(self):
+        """Both out of scope (owner's request). All three full-stack
+        spellings occur in the wild."""
+        for t in ("Full-Stack Developer (m/w/d)",
+                  "Full Stack Engineer",
+                  "Fullstack Entwickler Camunda (m/w/d)",
+                  "Full-Stack-Developer:in",
+                  "Web-Entwickler / Full-Stack Developer (m/w/d) I Berlin",
+                  "Process Engineer (m/w/d) Automatisierungstechnik",
+                  "Process Engineering Manager",
+                  "Process Manufacturing Engineer Automation (w/m/d)",
+                  "Prozessingenieur (m/w/d)",
+                  "Ingenieur:in fuer Verfahrenstechnik Abwasserbehandlung"):
+            self.assertFalse(passes_relevance_filter(t), t)
+
+    def test_process_exclusion_does_not_swallow_adjacent_roles(self):
+        """"process engineer", not a bare "process"/"prozess" stem: process
+        AUTOMATION is in scope even though process ENGINEERING is not, and
+        "Processing" in a software title is not process engineering at all."""
+        for t in ("Software Engineer - Processing of Content & Conditions (gn)",
+                  "Automation Engineer / Prozessautomatisierung (m/w/d)",
+                  "Entwickler Maschinelles Lernen / KI fuer industrielle "
+                  "Laserprozesse (m/w/d)"):
+            self.assertTrue(passes_relevance_filter(t), t)
+
+    def test_neither_is_searched_for_any_more(self):
+        for source in ("Arbeitsagentur", "Indeed", "Xing", "StepStone"):
+            searched = " | ".join(config.keywords_for(source)).lower()
+            self.assertNotIn("full-stack", searched, source)
+            self.assertNotIn("process control", searched, source)
+
     def test_plain_data_titles_still_excluded(self):
         for t in ("Data Engineer", "Snowflake Data Engineer (all genders)",
                   "Data Scientist - AI & Experimentation (m/f/d)",

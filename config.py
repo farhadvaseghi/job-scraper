@@ -89,13 +89,11 @@ KEYWORD_GROUPS = {
     "General Software": [
         "Python Developer",
         "Software Engineer",
-        "Full-Stack Developer",
         "Softwareentwickler",
         "Python Entwickler",
     ],
     "Automation / Process Control": [
         "Automation Engineer",
-        "Process Control Engineer",
         "PLC Engineer",
         "Automatisierungsingenieur",
         "Automatisierungstechnik",
@@ -214,10 +212,8 @@ KEYWORDS_BY_SOURCE = {
         "Digital Design Engineer",
         "Python Developer",
         "Software Engineer",
-        "Full-Stack Developer",
         "Softwareentwickler",
         "Automation Engineer",
-        "Process Control Engineer",
         "PLC Engineer",
         "Automatisierungsingenieur",
         "Automatisierungstechnik",
@@ -254,10 +250,8 @@ KEYWORDS_BY_SOURCE = {
         "Python Developer",
         "Python Entwickler",
         "Software Engineer",
-        "Full-Stack Developer",
         "Softwareentwickler",
         "Automation Engineer",
-        "Process Control Engineer",
         "PLC Engineer",
         "Automatisierungsingenieur",
     ],
@@ -304,9 +298,7 @@ KEYWORDS_BY_SOURCE = {
         "Digital Design Engineer",
         "Python Developer",
         "Software Engineer",
-        "Full-Stack Developer",
         "Automation Engineer",
-        "Process Control Engineer",
         "PLC Engineer",
         "Automatisierungsingenieur",
     ],
@@ -632,6 +624,27 @@ TITLE_EXCLUDE_TERMS = [
     "monteur",
     "quereinstieg",
     "umschulung",
+
+    # --- web full-stack and process engineering --------------------------
+    # Both out of scope (owner's request). As with the data roles, dropping
+    # the search keyword is not enough: "Full Stack Engineer" also comes back
+    # from the plain "Software Engineer" query, and process-engineering
+    # titles ride in on the automation ones.
+    #
+    # All three spellings occur in the wild and each was seen live:
+    # "Full-Stack Developer", "Full Stack Engineer", "Fullstack Entwickler".
+    "full stack",
+    "full-stack",
+    "fullstack",
+    # Deliberately "process engineer", not "process" or "prozess": a bare
+    # stem would take "Software Engineer - Processing of Content" and
+    # "Automation Engineer / Prozessautomatisierung" with it, and process
+    # AUTOMATION is in scope even though process ENGINEERING is not.
+    "process engineer",
+    "process manufacturing",
+    "prozessingenieur",
+    "verfahrenstechnik",
+    "verfahrensingenieur",
 ]
 
 # ...unless the title ALSO names one of these. Postings are routinely
@@ -665,7 +678,7 @@ RELEVANCE_TERMS = [
     "automation", "automatisierung", "plc", "sps", "steuerung", "mechatronik",
     # common languages/stacks that identify a dev role
     "python", "c++", "java", "matlab", "linux", "devops", "backend",
-    "frontend", "full-stack", "fullstack",
+    "frontend",
 ]
 
 # ---------------------------------------------------------------------------
