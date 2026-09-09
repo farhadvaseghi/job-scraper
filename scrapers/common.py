@@ -32,6 +32,14 @@ _SENIORITY_WORD_RE = [
     for term in config.SENIORITY_EXCLUDE_WORDS
 ]
 
+# Same split for the title opt-outs: config.TITLE_EXCLUDE_TERMS is matched
+# as substrings, while these get word boundaries because a substring would
+# misfire ("sales" inside "Salesforce", "sap" inside "sapient").
+_TITLE_EXCLUDE_WORD_RE = [
+    re.compile(r"\b" + re.escape(term.strip()) + r"\b", re.IGNORECASE)
+    for term in config.TITLE_EXCLUDE_WORD_TERMS
+]
+
 # Narrow false-positive guard: "Leiterplatte" (printed circuit board) starts
 # with "leiter" (manager/head) but is a hardware term, and PCB roles are
 # squarely in scope for an embedded/FPGA search. Checked before the seniority
@@ -148,6 +156,29 @@ def passes_seniority_filter(title):
     return not any(rx.search(lowered) for rx in _SENIORITY_WORD_RE)
 
 
+def passes_junior_title_filter(title):
+    """Keep only postings whose TITLE says they are entry-level.
+
+    The positive counterpart to passes_seniority_filter, which only removes
+    what is too senior. Owner's request: junior roles only.
+
+    This is a hard gate and it is aggressive on purpose -- only ~3-5% of
+    in-scope postings name their level at all, so most of what a board
+    returns is discarded here. The keyword lists compensate by querying the
+    boards for junior roles directly; see config.KEYWORDS_BY_SOURCE.
+
+    An empty title is kept, like every other unknown value in this file --
+    but note that main.py's relevance gate has already dropped those.
+    """
+    if not config.REQUIRE_JUNIOR_TITLE:
+        return True
+    title = to_text(title)
+    if not title:
+        return True
+    lowered = title.lower()
+    return any(term in lowered for term in config.JUNIOR_TITLE_TERMS)
+
+
 def passes_permanent_filter(text):
     """Drop postings that look like fixed-term contracts or temp-staffing
     agency placements, based on free text (title, company name, and/or any
@@ -193,7 +224,9 @@ def passes_relevance_filter(title):
     # posting matches nothing in RELEVANCE_TERMS any more, but a
     # "Data Engineer (Python)" would still match "python". An in-scope
     # override (e.g. "Data Engineer / Machine Learning Engineer") rescues it.
-    if any(term in lowered for term in config.TITLE_EXCLUDE_TERMS):
+    excluded = (any(term in lowered for term in config.TITLE_EXCLUDE_TERMS)
+                or any(rx.search(lowered) for rx in _TITLE_EXCLUDE_WORD_RE))
+    if excluded:
         if not any(ok in lowered for ok in config.TITLE_EXCLUDE_OVERRIDE_TERMS):
             return False
     return any(term in lowered for term in config.RELEVANCE_TERMS)

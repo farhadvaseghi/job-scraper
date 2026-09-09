@@ -29,6 +29,7 @@ from scrapers.common import (
     passes_city_filter,
     passes_company_filter,
     passes_permanent_filter,
+    passes_junior_title_filter,
     passes_relevance_filter,
     passes_seniority_filter,
     rank_jobs,
@@ -1015,6 +1016,101 @@ class PerSourceKeywords(unittest.TestCase):
                           f"{name} does not use config.keywords_for()")
             self.assertNotIn("config.KEYWORDS", src,
                              f"{name} still reads the shared keyword list")
+
+
+class JuniorOnly(unittest.TestCase):
+    """Owner's request: only entry-level titles are sent."""
+
+    def test_entry_level_titles_pass(self):
+        for t in ("Junior Software Engineer (all genders)",
+                  "(Junior) Machine Learning Engineer (m/w/d)",
+                  "Junior-Entwickler Embedded",
+                  "Technologiebegeisterter (Junior) Software-Ingenieur (m/w/d)",
+                  "Berufseinsteiger Softwareentwicklung (m/w/d)",
+                  "Absolvent Elektrotechnik (m/w/d)",
+                  "Graduate Systems Engineer",
+                  "Trainee Product Engineering (m/f/d)",
+                  "Nachwuchsingenieur Automatisierung"):
+            self.assertTrue(passes_junior_title_filter(t), t)
+
+    def test_titles_that_do_not_name_a_level_are_dropped(self):
+        """The expensive half of this feature: most postings look like these
+        and are now discarded. ~95% of in-scope postings, measured."""
+        for t in ("Software Engineer (m/w/d)",
+                  "Embedded Software Engineer",
+                  "Senior Java Developer",
+                  "SPS-Programmierer (m/w/d)"):
+            self.assertFalse(passes_junior_title_filter(t), t)
+
+    def test_quereinsteiger_is_not_a_junior_role(self):
+        """"einsteiger" as a bare marker would match "Quereinsteiger", a
+        career-changer posting, which is out of scope. The junior list spells
+        out "berufseinsteiger" for exactly this reason."""
+        t = "Quereinsteiger gesucht: Fachinformatiker (IHK) (m/w/d)"
+        self.assertFalse(passes_junior_title_filter(t), t)
+        self.assertFalse(passes_relevance_filter(t), t)
+
+    def test_quereinsteiger_stem_bug_stays_fixed(self):
+        """"quereinstieg" does NOT match "Quereinsteiger" -- stieg vs steig.
+        Both spellings must be in TITLE_EXCLUDE_TERMS."""
+        for t in ("Quereinstieg Software", "Quereinsteiger Softwareentwicklung"):
+            self.assertFalse(passes_relevance_filter(t), t)
+
+    def test_the_gate_can_be_switched_off(self):
+        original = config.REQUIRE_JUNIOR_TITLE
+        try:
+            config.REQUIRE_JUNIOR_TITLE = False
+            self.assertTrue(passes_junior_title_filter("Software Engineer"))
+        finally:
+            config.REQUIRE_JUNIOR_TITLE = original
+
+    def test_gate_is_on(self):
+        self.assertTrue(config.REQUIRE_JUNIOR_TITLE)
+
+    def test_every_board_actually_queries_for_junior_roles(self):
+        """Filtering alone would leave ~4 postings a run. Each board has to
+        ASK for junior roles too."""
+        for source in ("Arbeitsagentur", "Indeed", "Xing"):
+            words = config.keywords_for(source)
+            junior = [w for w in words if w in config.JUNIOR_KEYWORDS]
+            self.assertGreaterEqual(len(junior), 3, f"{source}: {junior}")
+
+    def test_bare_junior_only_where_it_was_measured_to_work(self):
+        """"Junior" alone finds 205 raw / 8 junior on Arbeitsagentur and
+        exactly nothing on Indeed and Xing. Do not copy it across."""
+        self.assertIn("Junior", config.keywords_for("Arbeitsagentur"))
+        self.assertNotIn("Junior", config.keywords_for("Indeed"))
+        self.assertNotIn("Junior", config.keywords_for("Xing"))
+
+
+class OffFieldDisciplines(unittest.TestCase):
+    """The junior queries are far broader than the topical ones, so they pull
+    in entry-level roles from other disciplines entirely."""
+
+    def test_other_disciplines_and_functions_excluded(self):
+        for t in ("Junior Bauingenieur / Architekt (w/m/d)",
+                  "(Junior) Ingenieur:in als BIM-Gesamtkoordinator:in",
+                  "Junior Ingenieur / Techniker Objektueberwachung HLSK",
+                  "Junior-Projektingenieur -Versorgungstechnik SHK (m/w/d)",
+                  "Junior Consultant Wirtschaftsingenieur",
+                  "Junior Technical Support Engineer (all genders)",
+                  "Business Developer / Junior FX Sales (m/w/d)",
+                  "Germany Junior Environmental Plan Approval Engineer",
+                  "Junior SAP Entwickler (w/m/d)"):
+            self.assertFalse(passes_relevance_filter(t), t)
+
+    def test_in_field_junior_roles_survive(self):
+        for t in ("Junior Software Engineer (m/w/d) Greenfield, InsurTech",
+                  "Junior Kotlin / Java Software Engineer",
+                  "(Junior) SPS Programmierer (m/w/d)",
+                  "Junior DevOps Platform Engineer (m/w/d)",
+                  "Junior Requirements Engineer (all gender)",
+                  "Junior Ingenieur (w/m/d) Elektrotechnik fuer Mobility"):
+            self.assertTrue(passes_relevance_filter(t), t)
+
+    def test_word_boundary_terms_do_not_misfire(self):
+        """"sales" is inside "Salesforce"; that is why it is word-matched."""
+        self.assertTrue(passes_relevance_filter("Salesforce Developer (m/w/d)"))
 
 
 if __name__ == "__main__":

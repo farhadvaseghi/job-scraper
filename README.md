@@ -78,6 +78,7 @@ Four knobs in `config.py`, in rough order of impact:
 - **Cities**: edit `CITIES_BY_COUNTRY` in `config.py`. `DACH_KEYWORDS` (Austria/Switzerland) and `INTERNATIONAL_KEYWORDS` (Netherlands) stay shared subsets -- those markets are picked by language, not by board, and are currently inactive.
 - **Countries**: `INDEED_COUNTRIES`, `STEPSTONE_SEARCHES` and `XING_LOCATIONS` in `config.py`.
 - **Automatic runs**: the workflow is manual-trigger only. To run it on a schedule, add a `schedule:` block with a `cron` line to `.github/workflows/job_scraper.yml` (times are UTC).
+- **Junior-only**: `REQUIRE_JUNIOR_TITLE` in `config.py` (on). A posting must name an entry-level role in its title -- `JUNIOR_TITLE_TERMS` lists the markers -- or it is not sent. It is an aggressive filter by design: only ~3-5% of in-scope postings name their level at all, which is why each board also *queries* for junior roles via `JUNIOR_KEYWORDS`. Set it to `False` to go back to all levels.
 - **Freshness window**: change `MAX_AGE_DAYS` in `config.py`.
 - **Permanent-only filter**: edit `TEMP_AGENCY_TERMS` in `config.py` to add more staffing-agency names you keep seeing slip through. The fixed-term ("befristet") exclusion is handled separately in `scrapers/common.py` and doesn't need editing.
 - **Defense/military exclusion**: edit `DEFENSE_COMPANIES` in `config.py` to add employers you want excluded.

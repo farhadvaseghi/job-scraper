@@ -20,6 +20,7 @@ from scrapers.common import (
     automotive_score,
     get_logger,
     passes_city_filter,
+    passes_junior_title_filter,
     passes_relevance_filter,
     rank_jobs,
 )
@@ -86,6 +87,20 @@ def run():
             "City filter dropped %d posting(s) outside the target cities, %d left",
             len(relevant) - len(located), len(located),
         )
+
+    # Junior-only gate (owner's request). Deliberately the LAST gate, so the
+    # log line above still shows how many in-scope postings existed before
+    # level was considered -- that ratio is the thing to watch if the digest
+    # ever goes quiet, because it is expected to be small (~3-5% of postings
+    # name their level at all) and a change in it means something moved.
+    junior = [j for j in located if passes_junior_title_filter(j["title"])]
+    if len(junior) != len(located):
+        log.info(
+            "Junior filter dropped %d posting(s) that do not name an "
+            "entry-level title, %d left",
+            len(located) - len(junior), len(junior),
+        )
+    located = junior
 
     seen = dedupe.prune(dedupe.load_seen())
     new_jobs = dedupe.filter_new(located, seen)

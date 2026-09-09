@@ -101,7 +101,26 @@ KEYWORD_GROUPS = {
     ],
 }
 
-KEYWORDS = [kw for group in KEYWORD_GROUPS.values() for kw in group]
+# Entry-level queries. These are not a role area, they are a LEVEL, so they
+# sit outside KEYWORD_GROUPS and apply across all of them. Which ones work is
+# board-specific and counter-intuitive -- bare "Junior" is the best single
+# query on Arbeitsagentur and returns nothing at all on Indeed and Xing -- so
+# each board picks from this pool in KEYWORDS_BY_SOURCE below.
+JUNIOR_KEYWORDS = [
+    "Junior",
+    "Junior Ingenieur",
+    "Junior Engineer",
+    "Junior Entwickler",
+    "Junior Developer",
+    "Junior Software Engineer",
+    "Graduate Engineer",
+    "Berufseinsteiger",
+    "Trainee Ingenieur",
+]
+
+KEYWORDS = (
+    [kw for group in KEYWORD_GROUPS.values() for kw in group] + JUNIOR_KEYWORDS
+)
 
 # Keywords used OUTSIDE the German-speaking market. The German compound terms
 # ("Automatisierungsingenieur", "Softwareentwickler", ...) return essentially
@@ -185,6 +204,16 @@ KEYWORDS_BY_SOURCE = {
     # "Automatisierungstechnik" (+22 postings no other keyword found),
     # "Testingenieur" (+11), "SPS-Programmierer" (+10), "Bildverarbeitung" (+3).
     "Arbeitsagentur": [
+        # Junior queries first -- measured 2026-09-09, these three reach 14
+        # distinct junior postings between them where the whole topical list
+        # below reaches only 4. "Junior" alone is worth keeping despite the
+        # overlap: it returns 205 raw and finds postings the two-word forms
+        # miss. "Berufseinsteiger", "Absolvent", "Trainee", "Graduate" and
+        # "Nachwuchsingenieur" were all tested here and returned ZERO
+        # in-scope junior postings -- German public postings do not use them.
+        "Junior Ingenieur",
+        "Junior",
+        "Junior Entwickler",
         "Embedded Software Engineer",
         "Embedded Systems Engineer",
         "Firmware Engineer",
@@ -224,6 +253,16 @@ KEYWORDS_BY_SOURCE = {
     # index simply has no such titles. Added on measured yield:
     # "Python Entwickler" (+8), "Softwaretester" (+7), "Robotik" (+3).
     "Indeed": [
+        # Junior queries first -- 16 distinct junior postings between them.
+        # Note "Junior" ALONE returns 0 here, the opposite of Arbeitsagentur:
+        # Indeed needs the role word alongside it.
+        "Junior Engineer",
+        "Junior Ingenieur",
+        "Junior Software Engineer",
+        "Junior Developer",
+        "Graduate Engineer",
+        "Berufseinsteiger",
+        "Trainee Ingenieur",
         "Embedded Software Engineer",
         "Embedded Systems Engineer",
         "Firmware Engineer",
@@ -268,6 +307,14 @@ KEYWORDS_BY_SOURCE = {
     # measured rather than guessed. These 35 cover 97% of everything the 50
     # tested keywords could reach.
     "Xing": [
+        # Junior queries first. Xing is by far the best junior source: these
+        # five reach 32 distinct junior postings, more than the other two
+        # boards combined. As with Indeed, bare "Junior" is useless here (0).
+        "Junior Software Engineer",
+        "Junior Ingenieur",
+        "Junior Entwickler",
+        "Graduate Engineer",
+        "Junior Engineer",
         "Embedded Software Engineer",
         "Embedded Systems Engineer",
         "Embedded Entwickler",
@@ -470,6 +517,47 @@ SENIORITY_EXCLUDE_WORDS = [
 ]
 
 # ---------------------------------------------------------------------------
+# JUNIOR-ONLY gate (owner's request, 2026-09-09)
+#
+# The seniority list above only removes titles that are too senior. This is
+# the positive half: with REQUIRE_JUNIOR_TITLE on, a posting must SAY it is
+# an entry-level role in its title or it is not sent at all.
+#
+# Know what this costs before switching it off-or-on: measured 2026-09-09
+# against a live Arbeitsagentur run, only 4 of 152 in-scope postings (3%)
+# carry any junior marker, and the sampled rate on Indeed and Xing was 5%
+# and 4%. Most German junior roles simply never say "junior" in the title.
+# Filtering alone would therefore have cut the digest to a handful, so the
+# keyword lists were rebuilt around junior queries as well -- the boards are
+# now ASKED for junior roles rather than being filtered down to them.
+#
+# Matched as substrings, so "(Junior)" and "Junior-Entwickler" both hit.
+# ---------------------------------------------------------------------------
+REQUIRE_JUNIOR_TITLE = True
+
+JUNIOR_TITLE_TERMS = [
+    "junior",
+    "jr.",
+    # German entry-level vocabulary. "berufseinsteiger" is spelled out rather
+    # than a bare "einsteiger": that substring also matches "Quereinsteiger",
+    # a career-changer/vocational posting which is explicitly out of scope.
+    "berufseinsteiger",
+    "berufsanfänger",
+    "berufsanfaenger",
+    "einstiegsposition",
+    "direkteinstieg",
+    "nachwuchs",
+    "absolvent",
+    # English, common in DE tech postings
+    "graduate",
+    "entry level",
+    "entry-level",
+    "young professional",
+    "new grad",
+    "trainee",
+]
+
+# ---------------------------------------------------------------------------
 # Permanent-only filter -- exclude fixed-term contracts and temp-staffing
 # agency postings. "unbefristet" (permanent) is never matched by mistake --
 # see passes_permanent_filter() in scrapers/common.py for why.
@@ -623,6 +711,37 @@ TITLE_EXCLUDE_TERMS = [
     "berufskraftfahrer",
     "monteur",
     "quereinstieg",
+    "quereinsteiger",  # NOT matched by "quereinstieg" -- stieg vs steig
+
+    # --- other engineering disciplines and non-engineering functions ------
+    # These only became a problem with the junior-only change. The junior
+    # queries ("Junior Ingenieur", "Junior Engineer") are far broader than
+    # the topical ones they replaced, so they surface entry-level roles from
+    # every discipline -- measured 2026-09-09, roughly a third of what they
+    # returned was civil engineering, building services, sales or consulting.
+    # The positive stems cannot tell them apart: "ingenieur" and "engineer"
+    # match all of it.
+    "bauingenieur",
+    "architekt",
+    "objektüberwachung",
+    "objektueberwachung",
+    "versorgungstechnik",
+    "hlsk",
+    "hochbau",
+    "tiefbau",
+    "bim-",
+    "wirtschaftsingenieur",
+    "consultant",
+    "consulting",
+    "technical support",
+    "support engineer",
+    "support entwickler",
+    "business application",
+    "business developer",
+    "sales engineer",
+    "vertriebsingenieur",
+    "environmental",
+    "umweltingenieur",
     "umschulung",
 
     # --- web full-stack and process engineering --------------------------
@@ -653,6 +772,13 @@ TITLE_EXCLUDE_TERMS = [
 # not. Checked after TITLE_EXCLUDE_TERMS and it wins.
 # Keep this list narrow: "ai" is deliberately absent, or every
 # "Data Scientist - AI & Experimentation" would be rescued too.
+# Matched as WHOLE WORDS, for stems where a substring would misfire:
+# "sales" is inside "Salesforce" and "sap" is inside "sapient"/"Sapper".
+TITLE_EXCLUDE_WORD_TERMS = [
+    "sales",
+    "sap",
+]
+
 TITLE_EXCLUDE_OVERRIDE_TERMS = [
     "machine learning",
     "deep learning",
