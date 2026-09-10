@@ -156,6 +156,24 @@ def passes_seniority_filter(title):
     return not any(rx.search(lowered) for rx in _SENIORITY_WORD_RE)
 
 
+def is_research_title(title):
+    """True for doctoral and research-assistant positions.
+
+    PhD / Doktorand / Promotion / Wissenschaftliche:r Mitarbeiter:in /
+    Research Assistant. Owner wants these, and neither kind advertises
+    itself as "junior", so this satisfies the junior gate on its own.
+
+    It also exempts a posting from the fixed-term rule -- currently moot,
+    since config.EXCLUDE_FIXED_TERM is off, but kept wired up so that
+    switching it back on does not silently kill every doctoral posting
+    again (a German PhD contract is befristet by definition).
+    """
+    if not config.INCLUDE_RESEARCH_POSITIONS:
+        return False
+    lowered = to_text(title).lower()
+    return any(term in lowered for term in config.RESEARCH_TITLE_TERMS)
+
+
 def passes_junior_title_filter(title):
     """Keep only postings whose TITLE says they are entry-level.
 
@@ -176,21 +194,37 @@ def passes_junior_title_filter(title):
     if not title:
         return True
     lowered = title.lower()
-    return any(term in lowered for term in config.JUNIOR_TITLE_TERMS)
+    if any(term in lowered for term in config.JUNIOR_TITLE_TERMS):
+        return True
+    # A doctoral or research post is an entry-level route in its own right
+    # and does not advertise itself as "junior".
+    return is_research_title(title)
 
 
-def passes_permanent_filter(text):
+def passes_permanent_filter(text, title=None):
     """Drop postings that look like fixed-term contracts or temp-staffing
     agency placements, based on free text (title, company name, and/or any
     extra snippet a scraper has available). Safe against "unbefristet"
-    (permanent) -- see the comment on _BEFRISTET_RE above."""
+    (permanent) -- see the comment on _BEFRISTET_RE above.
+
+    The fixed-term half of this is OFF (config.EXCLUDE_FIXED_TERM, owner's
+    request) -- only the temp-agency rule runs. The rest is kept intact so
+    turning it back on restores the previous behaviour exactly.
+
+    `title` is optional and is used ONLY to spot a doctoral/research
+    position, which is exempt from the fixed-term rule (a PhD contract is
+    befristet by definition). Pass it explicitly rather than relying on
+    `text`: two scrapers hand in the whole card, and a posting that merely
+    mentions "Promotion" in its blurb must not buy itself an exemption.
+    The temp-agency rule is never waived.
+    """
     if not text:
         return True
     lowered = text.lower()
     if any(term in lowered for term in config.TEMP_AGENCY_TERMS):
         return False
-    if _BEFRISTET_RE.search(lowered):
-        return False
+    if config.EXCLUDE_FIXED_TERM and _BEFRISTET_RE.search(lowered):
+        return is_research_title(title if title is not None else text)
     return True
 
 

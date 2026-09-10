@@ -404,7 +404,7 @@ def scrape():
                     if not passes_seniority_filter(title):
                         continue
                     check_text = f"{title} {item.get('company', '')} {item.get('context_text', '')}"
-                    if not passes_permanent_filter(check_text):
+                    if not passes_permanent_filter(check_text, title=title):
                         continue
                     if not passes_company_filter(item.get("company", "")):
                         continue

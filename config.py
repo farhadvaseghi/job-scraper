@@ -106,6 +106,29 @@ KEYWORD_GROUPS = {
 # board-specific and counter-intuitive -- bare "Junior" is the best single
 # query on Arbeitsagentur and returns nothing at all on Indeed and Xing -- so
 # each board picks from this pool in KEYWORDS_BY_SOURCE below.
+# Doctoral / research queries. Like JUNIOR_KEYWORDS these describe a LEVEL
+# rather than a role area, so they sit outside KEYWORD_GROUPS and each board
+# takes the ones measured to work on it (2026-09-10, in-city yield):
+#
+#   query                        Arbeitsagentur   Indeed   Xing
+#   PhD Machine Learning                0            0       7
+#   Wissenschaftlicher Mitarbeiter      1            1       2
+#   Research Assistant                  1            0       2
+#   Doktorand                           1            0       0
+#   PhD                                 0            1       0
+#
+# Xing carries most of them; Indeed almost none survive, and Arbeitsagentur
+# is a jobs register rather than an academic board. Note the city filter is
+# the real limit here, not the queries -- see RESEARCH note in CLAUDE.md.
+RESEARCH_KEYWORDS = [
+    "Doktorand",
+    "PhD",
+    "PhD Machine Learning",
+    "Wissenschaftlicher Mitarbeiter",
+    "Research Assistant",
+    "Doktorand Informatik",
+]
+
 JUNIOR_KEYWORDS = [
     "Junior",
     "Junior Ingenieur",
@@ -119,7 +142,9 @@ JUNIOR_KEYWORDS = [
 ]
 
 KEYWORDS = (
-    [kw for group in KEYWORD_GROUPS.values() for kw in group] + JUNIOR_KEYWORDS
+    [kw for group in KEYWORD_GROUPS.values() for kw in group]
+    + JUNIOR_KEYWORDS
+    + RESEARCH_KEYWORDS
 )
 
 # Keywords used OUTSIDE the German-speaking market. The German compound terms
@@ -214,6 +239,11 @@ KEYWORDS_BY_SOURCE = {
         "Junior Ingenieur",
         "Junior",
         "Junior Entwickler",
+        # doctoral / research -- measured, see RESEARCH_KEYWORDS
+        "Doktorand",
+        "Wissenschaftlicher Mitarbeiter",
+        "Research Assistant",
+        "Doktorand Informatik",
         "Embedded Software Engineer",
         "Embedded Systems Engineer",
         "Firmware Engineer",
@@ -263,6 +293,10 @@ KEYWORDS_BY_SOURCE = {
         "Graduate Engineer",
         "Berufseinsteiger",
         "Trainee Ingenieur",
+        # doctoral / research
+        "PhD",
+        "Doktorand",
+        "Wissenschaftlicher Mitarbeiter",
         "Embedded Software Engineer",
         "Embedded Systems Engineer",
         "Firmware Engineer",
@@ -315,6 +349,11 @@ KEYWORDS_BY_SOURCE = {
         "Junior Entwickler",
         "Graduate Engineer",
         "Junior Engineer",
+        # doctoral / research -- Xing is by far the best source for these
+        "PhD Machine Learning",
+        "Wissenschaftlicher Mitarbeiter",
+        "Research Assistant",
+        "PhD",
         "Embedded Software Engineer",
         "Embedded Systems Engineer",
         "Embedded Entwickler",
@@ -535,6 +574,44 @@ SENIORITY_EXCLUDE_WORDS = [
 # ---------------------------------------------------------------------------
 REQUIRE_JUNIOR_TITLE = True
 
+# ---------------------------------------------------------------------------
+# PhD / doctoral and research-assistant positions
+# (owner's request, 2026-09-10)
+#
+# Treated as an entry-level route alongside "junior": a doctoral or research
+# posting satisfies REQUIRE_JUNIOR_TITLE on its own, because neither
+# advertises itself as "junior".
+#
+# "wissenschaftlicher mitarbeiter" is the standard German job title for a PhD
+# position AND the standard title for a research assistant, which is why one
+# list covers both. It is the loosest term here -- it is also used for
+# post-docs and permanent research staff.
+# ---------------------------------------------------------------------------
+INCLUDE_RESEARCH_POSITIONS = True
+
+RESEARCH_TITLE_TERMS = [
+    # doctoral
+    "phd",
+    "ph.d",
+    "doctoral",
+    "doctorate",
+    "doktorand",          # covers Doktorand / Doktorandin / Doktorand:in
+    "doktorarbeit",
+    "promotion",          # covers Promotionsstelle / Promotionsprojekt
+    "promovend",
+    # research assistant / associate
+    "wissenschaftliche mitarbeiterin",
+    "wissenschaftlicher mitarbeiter",
+    "wissenschaftliche:r mitarbeiter",
+    "wissenschaftliche*r mitarbeiter",
+    "wiss. mitarbeiter",   # the abbreviation Indeed and Xing actually use
+    "research assistant",
+    "research associate",
+    "research fellow",
+    "forschungsassistent",
+    "graduate researcher",
+]
+
 JUNIOR_TITLE_TERMS = [
     "junior",
     "jr.",
@@ -564,6 +641,26 @@ JUNIOR_TITLE_TERMS = [
 # Add more staffing-agency brand names here if you notice them slipping
 # through (e.g. specific agencies you keep seeing).
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Fixed-term ("befristet") contracts -- NO LONGER FILTERED (owner's request,
+# 2026-09-10). Was on since the project started.
+#
+# Three separate places enforced it and all three honour this switch, so
+# flipping it back to True restores the old behaviour completely:
+#   * the "befristung": 2 parameter Arbeitsagentur's API is sent
+#   * Arbeitsagentur's structural vertragsdauer == BEFRISTET check
+#   * the befristet\w* text rule in passes_permanent_filter
+#
+# Note this was also what blocked every doctoral posting, since a German PhD
+# contract is befristet by definition -- so the research-position support
+# above and this switch push in the same direction.
+#
+# TEMP_AGENCY_TERMS below is a SEPARATE rule and stays on: a temp-staffing
+# placement is not the same thing as a fixed-term contract with a real
+# employer, and nothing in this change was meant to let those back in.
+# ---------------------------------------------------------------------------
+EXCLUDE_FIXED_TERM = False
+
 TEMP_AGENCY_TERMS = [
     # generic German staffing terms -- these appear in the company name of most
     # temp agencies (e.g. "XY Zeitarbeit GmbH", "ABC Personaldienstleistungen")

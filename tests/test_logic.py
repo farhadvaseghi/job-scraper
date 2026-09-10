@@ -29,6 +29,7 @@ from scrapers.common import (
     passes_city_filter,
     passes_company_filter,
     passes_permanent_filter,
+    is_research_title,
     passes_junior_title_filter,
     passes_relevance_filter,
     passes_seniority_filter,
@@ -102,14 +103,28 @@ class PermanentFilter(unittest.TestCase):
         self.assertTrue(passes_permanent_filter("Entwickler unbefristet Vollzeit"))
         self.assertTrue(passes_permanent_filter("UNBEFRISTETE Festanstellung"))
 
-    def test_befristet_forms_are_dropped(self):
-        for text in (
-            "Entwickler befristet",
-            "befristete Elternzeitvertretung",
-            "Stelle ist befristeter Natur",
-            "befristetes Arbeitsverhältnis",
-        ):
-            self.assertFalse(passes_permanent_filter(text), text)
+    def test_befristet_forms_are_dropped_when_the_filter_is_on(self):
+        """The fixed-term filter is OFF by default now (owner's request), but
+        the matching itself must keep working so re-enabling it is a
+        one-line change. Invariant #3 is checked here too: none of these may
+        be confused with "unbefristet"."""
+        original = config.EXCLUDE_FIXED_TERM
+        try:
+            config.EXCLUDE_FIXED_TERM = True
+            for text in (
+                "Entwickler befristet",
+                "befristete Elternzeitvertretung",
+                "Stelle ist befristeter Natur",
+                "befristetes Arbeitsverhältnis",
+            ):
+                self.assertFalse(passes_permanent_filter(text), text)
+            self.assertTrue(passes_permanent_filter("Entwickler unbefristet"))
+        finally:
+            config.EXCLUDE_FIXED_TERM = original
+
+    def test_befristet_is_kept_with_the_filter_off(self):
+        for text in ("Entwickler befristet", "befristetes Arbeitsverhältnis"):
+            self.assertTrue(passes_permanent_filter(text), text)
 
     def test_temp_agency_terms(self):
         self.assertFalse(passes_permanent_filter("Dev bei XY Zeitarbeit GmbH"))
@@ -1111,6 +1126,94 @@ class OffFieldDisciplines(unittest.TestCase):
     def test_word_boundary_terms_do_not_misfire(self):
         """"sales" is inside "Salesforce"; that is why it is word-matched."""
         self.assertTrue(passes_relevance_filter("Salesforce Developer (m/w/d)"))
+
+
+class ResearchPositions(unittest.TestCase):
+    """Doctoral and research-assistant posts count as entry-level routes."""
+
+    def test_doctoral_and_research_titles_recognised(self):
+        for t in ("Doktorand (m/w/d) Robotik",
+                  "Doktorandin / Doktorand (d/w/m) Promotionsstelle",
+                  "Wiss. Mitarbeiter:in / Doktorand:in (w/m/d) - HCI-Engineer",
+                  "Wissenschaftliche*r Mitarbeiter*in (Doktorand*in)",
+                  "PhD Position Machine Learning",
+                  "Doctoral Researcher in Autonomous Systems",
+                  "Research Assistant in Scientific Software Development",
+                  "Forschungsassistent Embedded Systems"):
+            self.assertTrue(is_research_title(t), t)
+
+    def test_they_satisfy_the_junior_gate_without_saying_junior(self):
+        for t in ("Doktorand (m/w/d) Robotik",
+                  "Research Assistant Computer Vision"):
+            self.assertNotIn("junior", t.lower())
+            self.assertTrue(passes_junior_title_filter(t), t)
+
+    def test_ordinary_titles_are_not_research(self):
+        for t in ("Software Engineer (m/w/d)", "Junior Java Developer"):
+            self.assertFalse(is_research_title(t), t)
+
+    def test_can_be_switched_off(self):
+        original = config.INCLUDE_RESEARCH_POSITIONS
+        try:
+            config.INCLUDE_RESEARCH_POSITIONS = False
+            self.assertFalse(is_research_title("Doktorand Robotik"))
+        finally:
+            config.INCLUDE_RESEARCH_POSITIONS = original
+
+    def test_every_board_queries_for_research_roles(self):
+        for source in ("Arbeitsagentur", "Indeed", "Xing"):
+            hits = [w for w in config.keywords_for(source)
+                    if w in config.RESEARCH_KEYWORDS]
+            self.assertGreaterEqual(len(hits), 3, f"{source}: {hits}")
+
+
+class FixedTermNoLongerFiltered(unittest.TestCase):
+    """Owner's request 2026-09-10: stop excluding befristet contracts."""
+
+    def test_switch_is_off(self):
+        self.assertFalse(config.EXCLUDE_FIXED_TERM)
+
+    def test_fixed_term_postings_are_kept(self):
+        for text in ("Software Engineer befristet auf 2 Jahre",
+                     "Embedded Engineer (m/w/d) - befristete Anstellung"):
+            self.assertTrue(passes_permanent_filter(text), text)
+
+    def test_temp_agencies_are_still_rejected(self):
+        """A separate rule -- removing the fixed-term filter must not let
+        staffing placements back in."""
+        for text in ("Software Engineer XY Zeitarbeit GmbH",
+                     "Embedded Engineer ABC Personaldienstleistungen GmbH"):
+            self.assertFalse(passes_permanent_filter(text), text)
+
+    def test_arbeitsagentur_no_longer_sends_the_server_side_filter(self):
+        """The 'befristung' API param hid fixed-term postings before the
+        client ever saw them, doctoral posts included."""
+        from scrapers import arbeitsagentur
+        self.assertEqual(arbeitsagentur._STRICT_PARAMS, {})
+
+    def test_re_enabling_still_exempts_doctoral_posts(self):
+        """A German PhD contract is befristet by definition, so turning the
+        filter back on must not silently kill every doctoral posting."""
+        original = config.EXCLUDE_FIXED_TERM
+        try:
+            config.EXCLUDE_FIXED_TERM = True
+            self.assertFalse(passes_permanent_filter(
+                "Software Engineer befristet", title="Software Engineer"))
+            self.assertTrue(passes_permanent_filter(
+                "Doktorand Robotik befristet 3 Jahre", title="Doktorand Robotik"))
+        finally:
+            config.EXCLUDE_FIXED_TERM = original
+
+    def test_a_passing_mention_does_not_buy_an_exemption(self):
+        """Two scrapers pass the whole card as `text`; only the TITLE counts."""
+        original = config.EXCLUDE_FIXED_TERM
+        try:
+            config.EXCLUDE_FIXED_TERM = True
+            self.assertFalse(passes_permanent_filter(
+                "Software Engineer ACME - Promotion moeglich - befristet",
+                title="Software Engineer"))
+        finally:
+            config.EXCLUDE_FIXED_TERM = original
 
 
 if __name__ == "__main__":

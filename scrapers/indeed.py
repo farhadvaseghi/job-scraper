@@ -92,7 +92,7 @@ def scrape():
                 company = to_text(item.get("company"))
                 if not title or not passes_seniority_filter(title):
                     continue
-                if not passes_permanent_filter(f"{title} {company}"):
+                if not passes_permanent_filter(f"{title} {company}", title=title):
                     continue
                 if not passes_company_filter(company):
                     continue

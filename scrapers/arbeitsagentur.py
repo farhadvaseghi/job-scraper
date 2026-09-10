@@ -42,6 +42,7 @@ from scrapers.common import (
     get_logger,
     make_job,
     passes_company_filter,
+    is_research_title,
     passes_permanent_filter,
     passes_seniority_filter,
     to_text,
@@ -74,9 +75,14 @@ _BASE_PARAMS = {
 #
 # We deliberately do NOT send a `zeitarbeit` param here -- temp-staffing agency
 # postings are excluded client-side via config.TEMP_AGENCY_TERMS instead.
-_STRICT_PARAMS = {
-    "befristung": 2,  # 2 = unbefristet (permanent) only
-}
+# Empty when config.EXCLUDE_FIXED_TERM is off (the current setting), so the
+# server stops filtering fixed-term postings out before we ever see them --
+# which is what hid every doctoral position, those being befristet by
+# definition. _search_one skips the strict request entirely when this is
+# empty, rather than paying for a duplicate call that adds no filter.
+_STRICT_PARAMS = (
+    {"befristung": 2} if config.EXCLUDE_FIXED_TERM else {}  # 2 = permanent only
+)
 
 # Remembered across calls once we find an endpoint that answers.
 _working_url = None
@@ -167,7 +173,7 @@ def _fetch_page(keyword, page):
 
     base = dict(_BASE_PARAMS, was=keyword, page=page)
 
-    if _strict_supported:
+    if _STRICT_PARAMS and _strict_supported:
         # Attempt 1: with the strict server-side permanent filter.
         data = _try_endpoints(dict(base, **_STRICT_PARAMS))
         if data is not None:
@@ -241,11 +247,16 @@ def scrape():
             if not passes_seniority_filter(title):
                 continue
             # v6 states the contract duration outright -- trust it over text
-            if _pick(item, "vertragsdauer").upper() == "BEFRISTET":
+            # A doctoral contract is fixed-term by definition, so the
+            # structural signal has to make the same exception the text
+            # rule does -- otherwise every PhD posting dies right here.
+            if (config.EXCLUDE_FIXED_TERM
+                    and _pick(item, "vertragsdauer").upper() == "BEFRISTET"
+                    and not is_research_title(title)):
                 continue
             # belt-and-suspenders on top of the befristung API param -- catches
             # temp-agency employer names the server filter itself might miss
-            if not passes_permanent_filter(f"{title} {employer}"):
+            if not passes_permanent_filter(f"{title} {employer}", title=title):
                 continue
             if not passes_company_filter(employer):
                 continue

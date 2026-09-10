@@ -79,6 +79,8 @@ Four knobs in `config.py`, in rough order of impact:
 - **Countries**: `INDEED_COUNTRIES`, `STEPSTONE_SEARCHES` and `XING_LOCATIONS` in `config.py`.
 - **Automatic runs**: the workflow is manual-trigger only. To run it on a schedule, add a `schedule:` block with a `cron` line to `.github/workflows/job_scraper.yml` (times are UTC).
 - **Junior-only**: `REQUIRE_JUNIOR_TITLE` in `config.py` (on). A posting must name an entry-level role in its title -- `JUNIOR_TITLE_TERMS` lists the markers -- or it is not sent. It is an aggressive filter by design: only ~3-5% of in-scope postings name their level at all, which is why each board also *queries* for junior roles via `JUNIOR_KEYWORDS`. Set it to `False` to go back to all levels.
+- **Doctoral / research posts**: `INCLUDE_RESEARCH_POSITIONS` in `config.py` (on). PhD, Doktorand, Promotion, Wissenschaftliche:r Mitarbeiter:in and Research Assistant titles count as entry-level and satisfy the junior gate on their own. `RESEARCH_KEYWORDS` is the query pool. Note the city allow-list is what limits these -- most German research institutes sit outside the twelve big cities.
+- **Fixed-term contracts**: `EXCLUDE_FIXED_TERM` in `config.py` is **off** -- befristet postings are no longer filtered out. Temp-staffing agencies (`TEMP_AGENCY_TERMS`) are a separate rule and are still excluded.
 - **Freshness window**: change `MAX_AGE_DAYS` in `config.py`.
 - **Permanent-only filter**: edit `TEMP_AGENCY_TERMS` in `config.py` to add more staffing-agency names you keep seeing slip through. The fixed-term ("befristet") exclusion is handled separately in `scrapers/common.py` and doesn't need editing.
 - **Defense/military exclusion**: edit `DEFENSE_COMPANIES` in `config.py` to add employers you want excluded.
