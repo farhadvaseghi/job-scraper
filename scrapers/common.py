@@ -356,16 +356,59 @@ def automotive_score(job):
     return score
 
 
+def industry_phd_score(job):
+    """How strongly a DOCTORAL/RESEARCH posting looks like an industry one.
+
+    0 = not a research posting at all, or a purely academic one. Used only
+    for RANKING (see rank_jobs) -- an academic PhD is never dropped, it just
+    sorts below an industrial one.
+
+    The employer carries most of the weight on purpose: German postings
+    rarely say "Industriepromotion" outright, but a doctoral position
+    advertised BY A COMPANY is an industrial one by definition. So the rule
+    is inverted -- match the academic employers, and treat everything else
+    as industry.
+
+    An unknown/blank employer scores as industry. That is deliberate: the
+    downside is one academic post ranked too high, against losing a genuine
+    industrial one to a scraper that failed to read the company name.
+    """
+    if not config.PRIORITIZE_INDUSTRY_PHD or not is_research_title(job.get("title")):
+        return 0
+
+    score = 0
+    title = to_text(job.get("title")).lower()
+    if any(term in title for term in config.INDUSTRY_PHD_TITLE_TERMS):
+        score += config.INDUSTRY_PHD_TITLE_SCORE
+
+    company = to_text(job.get("company")).lower()
+    if any(term in company for term in config.APPLIED_RESEARCH_EMPLOYERS):
+        score += config.APPLIED_RESEARCH_SCORE
+    elif not any(term in company for term in config.ACADEMIC_EMPLOYER_TERMS):
+        score += config.INDUSTRY_PHD_EMPLOYER_SCORE
+
+    return score
+
+
+def priority_score(job):
+    """Total ranking weight: automotive relevance plus industry-PhD weight.
+
+    Both are opt-in and both only ever REORDER the digest -- see rank_jobs.
+    """
+    return automotive_score(job) + industry_phd_score(job)
+
+
 def rank_jobs(jobs):
     """Highest-priority first, stable within a score.
 
     Python's sort is stable, so postings with the same score keep the order
-    the scraper collected them in -- ranking only lifts automotive roles above
-    the rest, it does not otherwise reshuffle the digest.
+    the scraper collected them in -- ranking only lifts automotive roles and
+    industry doctoral posts above the rest, it does not otherwise reshuffle
+    the digest, and it never drops anything.
     """
-    if not config.PRIORITIZE_AUTOMOTIVE:
+    if not (config.PRIORITIZE_AUTOMOTIVE or config.PRIORITIZE_INDUSTRY_PHD):
         return list(jobs)
-    return sorted(jobs, key=automotive_score, reverse=True)
+    return sorted(jobs, key=priority_score, reverse=True)
 
 
 def dedupe_key(job):

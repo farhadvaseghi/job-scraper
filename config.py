@@ -108,24 +108,45 @@ KEYWORD_GROUPS = {
 # each board picks from this pool in KEYWORDS_BY_SOURCE below.
 # Doctoral / research queries. Like JUNIOR_KEYWORDS these describe a LEVEL
 # rather than a role area, so they sit outside KEYWORD_GROUPS and each board
-# takes the ones measured to work on it (2026-09-10, in-city yield):
+# takes the ones measured to work on it.
 #
-#   query                        Arbeitsagentur   Indeed   Xing
-#   PhD Machine Learning                0            0       7
-#   Wissenschaftlicher Mitarbeiter      1            1       2
-#   Research Assistant                  1            0       2
-#   Doktorand                           1            0       0
-#   PhD                                 0            1       0
+# 40 field-specific and generic queries were measured on 2026-09-10, with the
+# city filter off. The boards split completely:
 #
-# Xing carries most of them; Indeed almost none survive, and Arbeitsagentur
-# is a jobs register rather than an academic board. Note the city filter is
-# the real limit here, not the queries -- see RESEARCH note in CLAUDE.md.
+#   query                             Arbeitsagentur  Indeed  Xing
+#   PhD Artificial Intelligence              1           0     17
+#   Doktorand KI / Maschinelles Lernen       2           0     17
+#   PhD Automotive                           0           0     13
+#   Doktorand Fahrerassistenzsysteme         0           0     13
+#   PhD Autonomous Driving                   0           0     13
+#   Doktorand Robotik                        0           0      9
+#   Wissenschaftlicher Mitarbeiter           6           3      3
+#   Wiss. Mitarbeiter Informatik             2           4      7
+#
+# Xing carries the academic market almost single-handedly -- 53 distinct
+# research postings against 8 on Arbeitsagentur and 7 on Indeed -- and it is
+# the only board where FIELD-SPECIFIC doctoral queries work at all. On the
+# other two, every field-specific variant returns zero and only the broad
+# terms land, so they get those instead. This is why "PhD Machine Learning"
+# alone was far too narrow: on Xing it is one of a dozen productive queries.
 RESEARCH_KEYWORDS = [
+    # broad -- the only ones that work on Arbeitsagentur and Indeed
     "Doktorand",
     "PhD",
-    "PhD Machine Learning",
+    "Promotion",
     "Wissenschaftlicher Mitarbeiter",
+    "Wissenschaftlicher Mitarbeiter Informatik",
     "Research Assistant",
+    # field-specific -- Xing only, where they are by far the strongest
+    "PhD Artificial Intelligence",
+    "PhD Automotive",
+    "PhD Computer Vision",
+    "PhD Machine Learning",
+    "PhD Autonomous Driving",
+    "Doktorand Robotik",
+    "Doktorand Sensorik",
+    "Doktorand Signalverarbeitung",
+    "Doktorand KI",
     "Doktorand Informatik",
 ]
 
@@ -239,11 +260,13 @@ KEYWORDS_BY_SOURCE = {
         "Junior Ingenieur",
         "Junior",
         "Junior Entwickler",
-        # doctoral / research -- measured, see RESEARCH_KEYWORDS
-        "Doktorand",
+        # doctoral / research -- covers 100% of what this board reaches
         "Wissenschaftlicher Mitarbeiter",
+        "Doktorand",
         "Research Assistant",
-        "Doktorand Informatik",
+        "Promotion",
+        "Wissenschaftlicher Mitarbeiter Informatik",
+        "Doktorand KI",
         "Embedded Software Engineer",
         "Embedded Systems Engineer",
         "Firmware Engineer",
@@ -293,9 +316,11 @@ KEYWORDS_BY_SOURCE = {
         "Graduate Engineer",
         "Berufseinsteiger",
         "Trainee Ingenieur",
-        # doctoral / research
+        # doctoral / research -- covers 100% of what this board reaches.
+        # Every field-specific PhD query returns zero here.
+        "Wissenschaftlicher Mitarbeiter Informatik",
         "PhD",
-        "Doktorand",
+        "Promotion",
         "Wissenschaftlicher Mitarbeiter",
         "Embedded Software Engineer",
         "Embedded Systems Engineer",
@@ -349,11 +374,17 @@ KEYWORDS_BY_SOURCE = {
         "Junior Entwickler",
         "Graduate Engineer",
         "Junior Engineer",
-        # doctoral / research -- Xing is by far the best source for these
-        "PhD Machine Learning",
-        "Wissenschaftlicher Mitarbeiter",
+        # doctoral / research -- Xing carries the academic market almost
+        # single-handedly (53 reachable vs 8 and 7). These 8 cover 92% of
+        # them; the field-specific queries are the ones doing the work.
+        "PhD Artificial Intelligence",
+        "PhD Automotive",
+        "Wissenschaftlicher Mitarbeiter Informatik",
+        "Doktorand Robotik",
+        "Doktorand Sensorik",
+        "Doktorand Signalverarbeitung",
+        "PhD Computer Vision",
         "Research Assistant",
-        "PhD",
         "Embedded Software Engineer",
         "Embedded Systems Engineer",
         "Embedded Entwickler",
@@ -503,11 +534,25 @@ CITY_ALIASES = {
     "Den Haag": ["The Hague", "'s-Gravenhage", "s-Gravenhage"],
 }
 
-# Whether the city list is actually ENFORCED. For a long time it was not: the
-# list existed but nothing read it, so a nationwide search returned every
-# village in Germany. Postings with no city at all, or that look remote, are
-# always kept regardless.
-RESTRICT_TO_CITIES = True
+# Whether the city list is actually ENFORCED.
+#
+# OFF since 2026-09-10 (owner's request). It was the single biggest filter in
+# the pipeline -- roughly half of everything in scope was dropped for being
+# outside the twelve cities -- and it was also what hid most doctoral and
+# research postings, since German research universities and institutes sit in
+# Aachen, Darmstadt, Karlsruhe, Braunschweig, Dresden, Tuebingen and the like
+# rather than in the big twelve. Measured 2026-09-10: it discarded 27 of the
+# 42 research postings the boards actually returned.
+#
+# Expect a large jump in overall volume with it off; the per-source caps in
+# MAX_JOBS_PER_SOURCE_OVERRIDES are now what bounds the digest, and ranking
+# (automotive priority) is what decides who makes the cut.
+#
+# CITIES_BY_COUNTRY and CITY_ALIASES are left fully intact so that flipping
+# this back to True restores the previous behaviour exactly. ACTIVE_COUNTRIES
+# still governs which COUNTRY is searched -- that is a separate switch and is
+# unaffected.
+RESTRICT_TO_CITIES = False
 
 REMOTE_TERMS = [
     "remote", "home office", "homeoffice", "hybrid",
@@ -918,6 +963,77 @@ RELEVANCE_TERMS = [
 # "Embedded Software Engineer" at Bosch may have nothing to do with vehicles,
 # while an "ADAS Engineer" anywhere certainly does.
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# Industry / industry-collaborative PhD priority (owner's request, 2026-09-10)
+#
+# Ranks doctoral and research postings that sit in INDUSTRY above purely
+# academic ones. Ranking only -- nothing is ever dropped for being academic.
+#
+# Two signals, because German postings rarely say "Industriepromotion"
+# outright:
+#   1. the title says so explicitly           -> strongest
+#   2. the EMPLOYER is not a university        -> a doctoral post advertised
+#      by a company is by definition an industrial one, which makes the
+#      employer the more reliable signal of the two
+#
+# Applied-research institutes (Fraunhofer, DLR, DFKI, Helmholtz) sit in
+# between and score in between: they are not universities, and their doctoral
+# work is normally done on industry projects, but they are not a company
+# either.
+# ---------------------------------------------------------------------------
+PRIORITIZE_INDUSTRY_PHD = True
+
+INDUSTRY_PHD_TITLE_TERMS = [
+    "industriepromotion",
+    "industrie-promotion",
+    "industriedoktorand",
+    "industrial phd",
+    "industrial doctorate",
+    "phd in industry",
+    "kooperative promotion",
+    "kooperationspromotion",
+    "promotion in kooperation",
+    "in kooperation mit der industrie",
+]
+INDUSTRY_PHD_TITLE_SCORE = 4
+
+# Employer-name markers for ACADEMIC institutions. A research posting whose
+# employer matches none of these is treated as industry. Matched as
+# substrings against the employer name only -- never the title, so that
+# "Doktorand Universelle Robotik" at a company is not misread as academic.
+ACADEMIC_EMPLOYER_TERMS = [
+    "universit",          # Universität / Universitat / University / Universiteit
+    "hochschule",
+    "fachhochschule",
+    "rwth",
+    "tu dortmund", "tu berlin", "tu münchen", "tu muenchen", "tu darmstadt",
+    "tu dresden", "tu braunschweig", "tu chemnitz", "tu ilmenau",
+    "technische universit",
+    "karlsruher institut",
+    "kit ",
+    "max-planck", "max planck",
+    "leibniz",
+    "charité", "charite",
+    "klinikum",
+    "akademie",
+    "studienkolleg",
+]
+INDUSTRY_PHD_EMPLOYER_SCORE = 2
+
+# Applied-research institutes: not a university, not a company. Their
+# doctoral positions are normally run on industry projects, so they rank
+# above a pure university post and below a company one.
+APPLIED_RESEARCH_EMPLOYERS = [
+    "fraunhofer",
+    "dlr",
+    "deutsches zentrum für luft", "deutsches zentrum fuer luft",
+    "dfki",
+    "helmholtz",
+    "forschungszentrum",
+    "ferdinand-braun", "leibniz-institut",
+]
+APPLIED_RESEARCH_SCORE = 1
+
 PRIORITIZE_AUTOMOTIVE = True
 
 AUTOMOTIVE_TITLE_SCORE = 3

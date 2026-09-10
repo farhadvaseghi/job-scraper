@@ -29,7 +29,9 @@ from scrapers.common import (
     passes_city_filter,
     passes_company_filter,
     passes_permanent_filter,
+    industry_phd_score,
     is_research_title,
+    priority_score,
     passes_junior_title_filter,
     passes_relevance_filter,
     passes_seniority_filter,
@@ -1214,6 +1216,99 @@ class FixedTermNoLongerFiltered(unittest.TestCase):
                 title="Software Engineer"))
         finally:
             config.EXCLUDE_FIXED_TERM = original
+
+
+def _job(title, company="", city="Berlin"):
+    return {"title": title, "company": company, "city": city,
+            "source": "Xing", "url": "https://x/1"}
+
+
+class CityFilterOff(unittest.TestCase):
+    """Owner's request 2026-09-10: stop restricting by city."""
+
+    def test_switch_is_off(self):
+        self.assertFalse(config.RESTRICT_TO_CITIES)
+
+    def test_research_towns_are_kept(self):
+        """These are where German research institutes actually are, and the
+        old 12-city list dropped every one of them."""
+        for c in ("Aachen", "Darmstadt", "Karlsruhe", "Braunschweig",
+                  "Dresden", "Clausthal-Zellerfeld", "Wachtberg",
+                  "Tübingen", "Bremen"):
+            self.assertTrue(passes_city_filter(c), c)
+
+    def test_the_city_data_is_still_intact_for_re_enabling(self):
+        original = config.RESTRICT_TO_CITIES
+        try:
+            config.RESTRICT_TO_CITIES = True
+            self.assertTrue(passes_city_filter("Berlin"))
+            self.assertFalse(passes_city_filter("Clausthal-Zellerfeld"))
+        finally:
+            config.RESTRICT_TO_CITIES = original
+
+
+class IndustryPhdPriority(unittest.TestCase):
+    """Industry and industry-collaborative doctoral posts rank first."""
+
+    def test_explicit_industrial_phd_scores_highest(self):
+        self.assertGreater(
+            industry_phd_score(_job("Industriepromotion Machine Learning", "Bosch")),
+            industry_phd_score(_job("Doktorand (m/w/d) Robotik", "Siemens AG")))
+
+    def test_company_employer_beats_university_employer(self):
+        company = industry_phd_score(_job("Doktorand (m/w/d) Robotik", "Siemens AG"))
+        uni = industry_phd_score(
+            _job("Doktorand (m/w/d) Robotik", "Technische Universität München"))
+        self.assertGreater(company, uni)
+        self.assertEqual(uni, 0)
+
+    def test_applied_research_institutes_rank_in_between(self):
+        uni = industry_phd_score(_job("Doktorand Sensorik", "RWTH Aachen"))
+        fraunhofer = industry_phd_score(_job("Doktorand Sensorik", "Fraunhofer IIS"))
+        company = industry_phd_score(_job("Doktorand Sensorik", "Continental AG"))
+        self.assertLess(uni, fraunhofer)
+        self.assertLess(fraunhofer, company)
+
+    def test_non_research_postings_score_zero(self):
+        self.assertEqual(industry_phd_score(_job("Software Engineer", "Bosch")), 0)
+
+    def test_unknown_employer_counts_as_industry(self):
+        """Deliberate: one academic post ranked too high beats losing a real
+        industrial one to a scraper that failed to read the company."""
+        self.assertGreater(industry_phd_score(_job("Doktorand Embedded", "")), 0)
+
+    def test_academic_posts_are_ranked_not_dropped(self):
+        jobs = [_job("Doktorand Robotik", "Universität Stuttgart"),
+                _job("Doktorand Robotik", "Bosch")]
+        ranked = rank_jobs(jobs)
+        self.assertEqual(len(ranked), 2, "ranking must never drop anything")
+        self.assertEqual(ranked[0]["company"], "Bosch")
+
+    def test_academic_marker_is_matched_on_the_employer_not_the_title(self):
+        """A company post about university-ish subject matter is industry."""
+        self.assertGreater(
+            industry_phd_score(_job("Doktorand Universelle Robotik", "Kuka AG")), 0)
+
+    def test_priority_combines_with_automotive(self):
+        both = priority_score(_job("Doktorand ADAS Sensor Fusion", "Bosch"))
+        phd_only = priority_score(_job("Doktorand Datenbanken", "SomeCo GmbH"))
+        self.assertGreater(both, phd_only)
+
+    def test_can_be_switched_off(self):
+        original = config.PRIORITIZE_INDUSTRY_PHD
+        try:
+            config.PRIORITIZE_INDUSTRY_PHD = False
+            self.assertEqual(industry_phd_score(_job("Doktorand Robotik", "Bosch")), 0)
+        finally:
+            config.PRIORITIZE_INDUSTRY_PHD = original
+
+    def test_digest_marks_industry_phd_postings(self):
+        lines = telegram_notify._job_lines(_job("Doktorand Robotik", "Bosch"))
+        self.assertIn("🏭", "".join(lines))
+
+    def test_digest_still_marks_automotive_postings(self):
+        lines = telegram_notify._job_lines(_job("ADAS Engineer", "Bosch"))
+        self.assertIn("🚗", "".join(lines))
 
 
 if __name__ == "__main__":

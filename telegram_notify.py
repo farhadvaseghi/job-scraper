@@ -15,7 +15,8 @@ import time
 import requests
 
 import config
-from scrapers.common import automotive_score, get_logger, to_text
+from scrapers.common import (
+    automotive_score, get_logger, industry_phd_score, to_text)
 
 log = get_logger("telegram")
 
@@ -66,7 +67,14 @@ def _job_lines(job):
 
     # Automotive roles are ranked to the top of each source; mark them so
     # that ordering is visible rather than implicit.
-    bullet = "🚗" if automotive_score(job) else "•"
+    # 🏭 industry/industry-collaborative doctoral post, 🚗 automotive.
+    # Checked in that order so an automotive PhD reads as the PhD it is.
+    if industry_phd_score(job):
+        bullet = "🏭"
+    elif automotive_score(job):
+        bullet = "🚗"
+    else:
+        bullet = "•"
 
     url = to_text(job.get("url"))
     if url.startswith("http"):
