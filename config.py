@@ -601,23 +601,41 @@ SENIORITY_EXCLUDE_WORDS = [
 ]
 
 # ---------------------------------------------------------------------------
-# JUNIOR-ONLY gate (owner's request, 2026-09-09)
+# JUNIOR: a PREFERENCE, not a gate (owner's request, 2026-09-28)
 #
-# The seniority list above only removes titles that are too senior. This is
-# the positive half: with REQUIRE_JUNIOR_TITLE on, a posting must SAY it is
-# an entry-level role in its title or it is not sent at all.
+# History: this was a hard gate (REQUIRE_JUNIOR_TITLE = True, 2026-09-09) --
+# a posting had to SAY it was entry-level in its title or it was never sent.
+# The owner's follow-up was that the digest came back junior-ONLY, which was
+# not the intent: junior roles should be INCLUDED, not the only thing shown.
 #
-# Know what this costs before switching it off-or-on: measured 2026-09-09
-# against a live Arbeitsagentur run, only 4 of 152 in-scope postings (3%)
-# carry any junior marker, and the sampled rate on Indeed and Xing was 5%
-# and 4%. Most German junior roles simply never say "junior" in the title.
-# Filtering alone would therefore have cut the digest to a handful, so the
-# keyword lists were rebuilt around junior queries as well -- the boards are
-# now ASKED for junior roles rather than being filtered down to them.
+# So the gate is off and junior is handled two other ways instead:
+#   * the boards are still ASKED for junior roles directly (the "Junior ..."
+#     queries in KEYWORDS_BY_SOURCE stay exactly as they are), and
+#   * a junior title now earns a RANKING boost (PRIORITIZE_JUNIOR below), so
+#     entry-level postings sort to the top of each source's message and
+#     survive the per-source cap first -- without excluding everything else.
+#
+# What still limits seniority is SENIORITY_EXCLUDE above, which drops senior
+# / lead / principal / manager titles. Between the two, the digest is now
+# "everything in scope that isn't too senior, junior roles first".
+#
+# Turning this back on restores the old junior-only behaviour exactly. Know
+# what it costs first: measured 2026-09-09 against a live Arbeitsagentur run,
+# only 4 of 152 in-scope postings (3%) carry any junior marker, and the
+# sampled rate on Indeed and Xing was 5% and 4%. Most German junior roles
+# simply never say "junior" in the title -- which is why the gate made the
+# digest look junior-only-and-tiny.
 #
 # Matched as substrings, so "(Junior)" and "Junior-Entwickler" both hit.
 # ---------------------------------------------------------------------------
-REQUIRE_JUNIOR_TITLE = True
+REQUIRE_JUNIOR_TITLE = False
+
+# Rank entry-level postings above the rest instead of filtering to them.
+# Scored against AUTOMOTIVE_TITLE_SCORE (3) deliberately: an automotive role
+# still outranks a generic junior one, an automotive junior role outranks
+# both, and a junior posting outranks an unremarkable one.
+PRIORITIZE_JUNIOR = True
+JUNIOR_TITLE_SCORE = 2
 
 # ---------------------------------------------------------------------------
 # PhD / doctoral and research-assistant positions

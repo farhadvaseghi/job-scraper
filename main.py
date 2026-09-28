@@ -19,6 +19,7 @@ import telegram_notify
 from scrapers.common import (
     automotive_score,
     get_logger,
+    junior_score,
     passes_city_filter,
     passes_junior_title_filter,
     passes_relevance_filter,
@@ -88,19 +89,33 @@ def run():
             len(relevant) - len(located), len(located),
         )
 
-    # Junior-only gate (owner's request). Deliberately the LAST gate, so the
-    # log line above still shows how many in-scope postings existed before
-    # level was considered -- that ratio is the thing to watch if the digest
-    # ever goes quiet, because it is expected to be small (~3-5% of postings
-    # name their level at all) and a change in it means something moved.
-    junior = [j for j in located if passes_junior_title_filter(j["title"])]
-    if len(junior) != len(located):
+    # Level handling. Junior is a PREFERENCE now, not a gate (owner's request,
+    # 2026-09-28): the digest had come back junior-only, when the intent was
+    # that junior roles be included alongside everything else in scope.
+    #
+    # With config.REQUIRE_JUNIOR_TITLE off, passes_junior_title_filter is a
+    # no-op and nothing is dropped for level here -- SENIORITY_EXCLUDE has
+    # already removed the too-senior titles, and junior_score() lifts the
+    # entry-level ones to the top during ranking below. The gate is still
+    # wired up so flipping the flag back on restores junior-only exactly.
+    if config.REQUIRE_JUNIOR_TITLE:
+        junior = [j for j in located if passes_junior_title_filter(j["title"])]
+        if len(junior) != len(located):
+            log.info(
+                "Junior gate dropped %d posting(s) that do not name an "
+                "entry-level title, %d left",
+                len(located) - len(junior), len(junior),
+            )
+        located = junior
+    else:
+        # Not a filter -- just report the mix, which is the number to watch:
+        # if it ever reads 0 junior, the junior queries stopped working.
+        entry_level = sum(1 for j in located if junior_score(j))
         log.info(
-            "Junior filter dropped %d posting(s) that do not name an "
-            "entry-level title, %d left",
-            len(located) - len(junior), len(junior),
+            "Junior is a ranking preference, not a gate: %d of %d in-scope "
+            "posting(s) are entry-level and will sort first",
+            entry_level, len(located),
         )
-    located = junior
 
     seen = dedupe.prune(dedupe.load_seen())
     new_jobs = dedupe.filter_new(located, seen)

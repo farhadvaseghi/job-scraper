@@ -390,23 +390,52 @@ def industry_phd_score(job):
     return score
 
 
-def priority_score(job):
-    """Total ranking weight: automotive relevance plus industry-PhD weight.
+def junior_score(job):
+    """How strongly a posting advertises itself as entry-level. 0 = not.
 
-    Both are opt-in and both only ever REORDER the digest -- see rank_jobs.
+    This is what replaced the junior-ONLY gate (see config.REQUIRE_JUNIOR_TITLE):
+    the owner wants junior roles included and surfaced first, not made the only
+    thing in the digest. So a junior title lifts a posting up the list and
+    NEVER drops anything -- same contract as automotive_score.
+
+    Research/doctoral postings count too: they are an entry-level route that
+    simply does not use the word "junior", exactly as they did under the gate.
     """
-    return automotive_score(job) + industry_phd_score(job)
+    if not config.PRIORITIZE_JUNIOR:
+        return 0
+    title = to_text(job.get("title"))
+    if not title:
+        return 0
+    lowered = title.lower()
+    if any(term in lowered for term in config.JUNIOR_TITLE_TERMS):
+        return config.JUNIOR_TITLE_SCORE
+    if is_research_title(title):
+        return config.JUNIOR_TITLE_SCORE
+    return 0
+
+
+def priority_score(job):
+    """Total ranking weight: automotive + industry-PhD + entry-level weight.
+
+    All three are opt-in and all three only ever REORDER the digest -- see
+    rank_jobs.
+    """
+    return automotive_score(job) + industry_phd_score(job) + junior_score(job)
 
 
 def rank_jobs(jobs):
     """Highest-priority first, stable within a score.
 
     Python's sort is stable, so postings with the same score keep the order
-    the scraper collected them in -- ranking only lifts automotive roles and
-    industry doctoral posts above the rest, it does not otherwise reshuffle
-    the digest, and it never drops anything.
+    the scraper collected them in -- ranking only lifts automotive roles,
+    industry doctoral posts and entry-level roles above the rest, it does not
+    otherwise reshuffle the digest, and it never drops anything.
     """
-    if not (config.PRIORITIZE_AUTOMOTIVE or config.PRIORITIZE_INDUSTRY_PHD):
+    if not (
+        config.PRIORITIZE_AUTOMOTIVE
+        or config.PRIORITIZE_INDUSTRY_PHD
+        or config.PRIORITIZE_JUNIOR
+    ):
         return list(jobs)
     return sorted(jobs, key=priority_score, reverse=True)
 

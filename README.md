@@ -1,9 +1,10 @@
 # Job Scraper -> Telegram (DE / NL / AT / CH)
 
 Searches Arbeitsagentur, Indeed, StepStone, and Xing for new job postings
-(junior/entry-level, full-time, permanent only -- fixed-term contracts and
-temp-staffing agency postings are filtered out, and defense/military employers
-are excluded) matching a curated set of keywords, and posts a digest of
+(full-time engineering roles that aren't too senior, with junior/entry-level
+and doctoral postings ranked first -- temp-staffing agency postings are
+filtered out and defense/military employers are excluded) matching a curated
+set of keywords, and posts a digest of
 anything new (posted within the last 7 days, not already sent before) to a
 Telegram channel. Runs when you trigger it manually from the Actions tab --
 no server of your own required.
@@ -78,10 +79,11 @@ Four knobs in `config.py`, in rough order of impact:
 - **Cities**: edit `CITIES_BY_COUNTRY` in `config.py`. `DACH_KEYWORDS` (Austria/Switzerland) and `INTERNATIONAL_KEYWORDS` (Netherlands) stay shared subsets -- those markets are picked by language, not by board, and are currently inactive.
 - **Countries**: `INDEED_COUNTRIES`, `STEPSTONE_SEARCHES` and `XING_LOCATIONS` in `config.py`.
 - **Automatic runs**: the workflow is manual-trigger only. To run it on a schedule, add a `schedule:` block with a `cron` line to `.github/workflows/job_scraper.yml` (times are UTC).
-- **Junior-only**: `REQUIRE_JUNIOR_TITLE` in `config.py` (on). A posting must name an entry-level role in its title -- `JUNIOR_TITLE_TERMS` lists the markers -- or it is not sent. It is an aggressive filter by design: only ~3-5% of in-scope postings name their level at all, which is why each board also *queries* for junior roles via `JUNIOR_KEYWORDS`. Set it to `False` to go back to all levels.
+- **Junior is a preference, not a gate**: `PRIORITIZE_JUNIOR` in `config.py` (on) gives entry-level and doctoral titles ranking weight so they sort to the top of each source and survive the per-source cap first. Everything else in scope is still sent, just below them; `SENIORITY_EXCLUDE` is what removes the too-senior titles. Each board also *queries* for junior roles via `JUNIOR_KEYWORDS`, which is what puts entry-level postings in the pool at all.
+- **Junior-only mode**: `REQUIRE_JUNIOR_TITLE` in `config.py` (**off**). Turning it on drops everything that does not name an entry-level role in its title. Know the cost first -- only ~3-5% of in-scope postings name their level at all, so the digest becomes very small and looks junior-only, which is why it was switched off.
 - **City filter**: `RESTRICT_TO_CITIES` in `config.py` is **off** -- results are no longer restricted to the twelve cities. It was the biggest filter in the pipeline and it hid most research postings, since German research institutes sit in Aachen, Darmstadt, Karlsruhe and Braunschweig rather than the big twelve. `CITIES_BY_COUNTRY` is kept intact so turning it back on restores the old behaviour.
 - **Industry PhD priority**: `PRIORITIZE_INDUSTRY_PHD` in `config.py` (on) ranks doctoral posts at companies above purely academic ones -- title terms like "Industriepromotion" score highest, a non-university employer next, applied-research institutes (Fraunhofer, DLR) in between, universities last. Ranking only; nothing is dropped. These are marked 🏭 in the digest.
-- **Doctoral / research posts**: `INCLUDE_RESEARCH_POSITIONS` in `config.py` (on). PhD, Doktorand, Promotion, Wissenschaftliche:r Mitarbeiter:in and Research Assistant titles count as entry-level and satisfy the junior gate on their own. `RESEARCH_KEYWORDS` is the query pool. Note the city allow-list is what limits these -- most German research institutes sit outside the twelve big cities.
+- **Doctoral / research posts**: `INCLUDE_RESEARCH_POSITIONS` in `config.py` (on). PhD, Doktorand, Promotion, Wissenschaftliche:r Mitarbeiter:in and Research Assistant titles count as entry-level and get the same ranking weight as a junior title, since neither kind ever advertises itself as "junior". `RESEARCH_KEYWORDS` is the query pool. Note the city allow-list is what limits these -- most German research institutes sit outside the twelve big cities.
 - **Fixed-term contracts**: `EXCLUDE_FIXED_TERM` in `config.py` is **off** -- befristet postings are no longer filtered out. Temp-staffing agencies (`TEMP_AGENCY_TERMS`) are a separate rule and are still excluded.
 - **Freshness window**: change `MAX_AGE_DAYS` in `config.py`.
 - **Permanent-only filter**: edit `TEMP_AGENCY_TERMS` in `config.py` to add more staffing-agency names you keep seeing slip through. The fixed-term ("befristet") exclusion is handled separately in `scrapers/common.py` and doesn't need editing.

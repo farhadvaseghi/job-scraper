@@ -31,6 +31,7 @@ from scrapers.common import (
     passes_permanent_filter,
     industry_phd_score,
     is_research_title,
+    junior_score,
     priority_score,
     passes_junior_title_filter,
     passes_relevance_filter,
@@ -1035,8 +1036,10 @@ class PerSourceKeywords(unittest.TestCase):
                              f"{name} still reads the shared keyword list")
 
 
-class JuniorOnly(unittest.TestCase):
-    """Owner's request: only entry-level titles are sent."""
+class JuniorPreference(unittest.TestCase):
+    """Owner's request (2026-09-28): junior roles are INCLUDED and surfaced
+    first, but are no longer the only thing sent. The gate that made the
+    digest junior-only is off; junior is a ranking preference instead."""
 
     def test_entry_level_titles_pass(self):
         for t in ("Junior Software Engineer (all genders)",
@@ -1050,21 +1053,53 @@ class JuniorOnly(unittest.TestCase):
                   "Nachwuchsingenieur Automatisierung"):
             self.assertTrue(passes_junior_title_filter(t), t)
 
-    def test_titles_that_do_not_name_a_level_are_dropped(self):
-        """The expensive half of this feature: most postings look like these
-        and are now discarded. ~95% of in-scope postings, measured."""
+    def test_titles_that_do_not_name_a_level_are_kept(self):
+        """The point of the change. These are ~95% of in-scope postings and
+        used to be discarded for not naming a level; they now come through."""
         for t in ("Software Engineer (m/w/d)",
                   "Embedded Software Engineer",
-                  "Senior Java Developer",
                   "SPS-Programmierer (m/w/d)"):
-            self.assertFalse(passes_junior_title_filter(t), t)
+            self.assertTrue(passes_junior_title_filter(t), t)
 
-    def test_quereinsteiger_is_not_a_junior_role(self):
+    def test_too_senior_is_still_excluded(self):
+        """Dropping the junior gate must NOT let senior roles in -- that is
+        SENIORITY_EXCLUDE's job and it still runs."""
+        for t in ("Senior Java Developer",
+                  "Teamleiter Softwareentwicklung",
+                  "Engineering Manager",
+                  "Tech Lead"):
+            self.assertFalse(passes_seniority_filter(t), t)
+
+    def test_junior_titles_outrank_unmarked_ones(self):
+        """Junior is expressed as ranking weight now, so entry-level postings
+        survive the per-source cap first."""
+        def job(title, company="ACME"):
+            return {"source": "Xing", "title": title, "company": company,
+                    "city": "Berlin", "url": "https://x.com/" + title,
+                    "raw_age_text": ""}
+        self.assertGreater(junior_score(job("Junior Software Engineer")), 0)
+        self.assertEqual(junior_score(job("Software Engineer")), 0)
+        ranked = rank_jobs([job("Software Engineer"),
+                            job("Junior Software Engineer")])
+        self.assertEqual(ranked[0]["title"], "Junior Software Engineer")
+        # ranking never drops anything
+        self.assertEqual(len(ranked), 2)
+
+    def test_research_posts_still_count_as_entry_level(self):
+        """A doctoral/research post is an entry-level route that never says
+        "junior" -- it scored under the gate and must still score now."""
+        for t in ("Doktorand Machine Learning (m/w/d)",
+                  "Wissenschaftlicher Mitarbeiter Robotik"):
+            self.assertGreater(
+                junior_score({"title": t, "company": "", "source": "Xing",
+                              "url": "https://x.com/x", "city": "Berlin"}), 0, t)
+
+    def test_quereinsteiger_is_still_out_of_scope(self):
         """"einsteiger" as a bare marker would match "Quereinsteiger", a
-        career-changer posting, which is out of scope. The junior list spells
-        out "berufseinsteiger" for exactly this reason."""
+        career-changer posting, which is out of scope. It is excluded by the
+        RELEVANCE filter, which is unaffected by the junior change -- so it
+        stays out even though the junior gate no longer drops anything."""
         t = "Quereinsteiger gesucht: Fachinformatiker (IHK) (m/w/d)"
-        self.assertFalse(passes_junior_title_filter(t), t)
         self.assertFalse(passes_relevance_filter(t), t)
 
     def test_quereinsteiger_stem_bug_stays_fixed(self):
@@ -1073,16 +1108,19 @@ class JuniorOnly(unittest.TestCase):
         for t in ("Quereinstieg Software", "Quereinsteiger Softwareentwicklung"):
             self.assertFalse(passes_relevance_filter(t), t)
 
-    def test_the_gate_can_be_switched_off(self):
+    def test_the_gate_can_be_switched_back_on(self):
+        """Flipping REQUIRE_JUNIOR_TITLE restores junior-only exactly."""
         original = config.REQUIRE_JUNIOR_TITLE
         try:
-            config.REQUIRE_JUNIOR_TITLE = False
-            self.assertTrue(passes_junior_title_filter("Software Engineer"))
+            config.REQUIRE_JUNIOR_TITLE = True
+            self.assertFalse(passes_junior_title_filter("Software Engineer"))
+            self.assertTrue(passes_junior_title_filter("Junior Software Engineer"))
         finally:
             config.REQUIRE_JUNIOR_TITLE = original
 
-    def test_gate_is_on(self):
-        self.assertTrue(config.REQUIRE_JUNIOR_TITLE)
+    def test_gate_is_off_and_preference_is_on(self):
+        self.assertFalse(config.REQUIRE_JUNIOR_TITLE)
+        self.assertTrue(config.PRIORITIZE_JUNIOR)
 
     def test_every_board_actually_queries_for_junior_roles(self):
         """Filtering alone would leave ~4 postings a run. Each board has to
