@@ -33,6 +33,7 @@ from scrapers.common import (
     is_research_title,
     junior_score,
     priority_score,
+    robotics_score,
     passes_junior_title_filter,
     passes_relevance_filter,
     passes_seniority_filter,
@@ -1034,6 +1035,61 @@ class PerSourceKeywords(unittest.TestCase):
                           f"{name} does not use config.keywords_for()")
             self.assertNotIn("config.KEYWORDS", src,
                              f"{name} still reads the shared keyword list")
+
+
+class RoboticsPreference(unittest.TestCase):
+    """Owner's request (2026-09-28): rank robotics roles up, same as
+    automotive. Ranking only -- nothing is dropped for not being robotics."""
+
+    def _job(self, title, company="ACME"):
+        return {"source": "Xing", "title": title, "company": company,
+                "city": "Berlin", "url": "https://x.com/j", "raw_age_text": ""}
+
+    def test_robotics_titles_score(self):
+        for t in ("Robotics Software Engineer",
+                  "Robotikingenieur (m/w/d)",
+                  "Roboter-Programmierer",
+                  "SLAM Engineer",
+                  "ROS Developer",
+                  "Motion Planning Engineer",
+                  "Bahnplanung Autonome Systeme",
+                  "AGV / AMR Software Engineer",
+                  "Mobile Robot Perception Engineer",
+                  "Drohnen Softwareentwickler"):
+            self.assertGreater(robotics_score(self._job(t)), 0, t)
+
+    def test_robotics_employers_add_weight(self):
+        for c in ("KUKA Deutschland GmbH", "Neura Robotics GmbH",
+                  "Franka Emika", "Magazino GmbH"):
+            self.assertGreaterEqual(
+                robotics_score(self._job("Software Engineer", c)), 1, c)
+
+    def test_short_tokens_do_not_false_positive(self):
+        """"ros" lives inside "microsoft", "prozess" and "across"; "slam"
+        inside "slammed". They are whole-word matched for exactly this
+        reason -- see config.ROBOTICS_TITLE_WORD_TERMS."""
+        for t in ("Microsoft 365 Administrator",
+                  "Prozessingenieur Fertigung",
+                  "Across Borders Sales Manager",
+                  "Java Backend Developer"):
+            self.assertEqual(robotics_score(self._job(t)), 0, t)
+
+    def test_robotics_ranks_above_unremarkable(self):
+        ranked = rank_jobs([self._job("Software Engineer"),
+                            self._job("Robotics Engineer")])
+        self.assertEqual(ranked[0]["title"], "Robotics Engineer")
+        self.assertEqual(len(ranked), 2)  # never drops
+
+    def test_robotics_and_automotive_are_scored_equally(self):
+        """Neither domain should outrank the other -- both are core to the CV."""
+        self.assertEqual(config.ROBOTICS_TITLE_SCORE,
+                         config.AUTOMOTIVE_TITLE_SCORE)
+
+    def test_nothing_is_dropped_for_not_being_robotics(self):
+        plain = "Embedded Software Engineer"
+        self.assertEqual(robotics_score(self._job(plain)), 0)
+        self.assertTrue(passes_relevance_filter(plain))
+        self.assertTrue(passes_seniority_filter(plain))
 
 
 class JuniorPreference(unittest.TestCase):

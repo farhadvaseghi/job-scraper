@@ -1096,6 +1096,76 @@ AUTOMOTIVE_COMPANIES = [
 ]
 
 # ---------------------------------------------------------------------------
+# ROBOTICS preference (owner's request, 2026-09-28)
+#
+# Same mechanism as automotive above, and scored the SAME (3 for the title):
+# robotics and automotive are both core to this CV -- SLAM/ROS/Gazebo work at
+# LHFT, the RoboRacer trajectory-planning project, sensor fusion -- so neither
+# should outrank the other. A posting that is both (autonomous driving is the
+# overlap) simply scores twice and sorts to the very top, which is correct.
+#
+# Ranking only. Nothing is dropped for NOT being robotics.
+# ---------------------------------------------------------------------------
+PRIORITIZE_ROBOTICS = True
+
+ROBOTICS_TITLE_SCORE = 3
+ROBOTICS_COMPANY_SCORE = 1
+
+# Matched as SUBSTRINGS against the lowercased title -- safe because each of
+# these is long enough not to appear inside an unrelated word, and substring
+# matching is what makes the German compounds work ("Robotikingenieur",
+# "Bahnplanung").
+ROBOTICS_TITLE_TERMS = [
+    "robotik", "robotics", "roboter", "robot",
+    "cobot", "manipulator", "greifer", "end effector", "endeffektor",
+    "kinematik", "kinematics", "inverse kinematik",
+    "motion planning", "bewegungsplanung", "bahnplanung",
+    "path planning", "trajectory", "trajektorie",
+    "autonomous system", "autonome system", "autonomous mobile",
+    "autonomous navigation", "autonome navigation",
+    "mobile robot", "mobiler roboter", "serviceroboter",
+    "industrieroboter", "industrial robot",
+    "fahrerloses transportsystem", "fahrerlose transportfahrzeuge",
+    "localization", "lokalisierung", "mapping",
+    "perception", "perzeption",
+    "gazebo", "moveit", "nvidia isaac", "isaac sim",
+    "drohne", "drone", "unmanned aerial", "quadrocopter", "quadcopter",
+    "mechatronik", "mechatronics",
+    "greifsystem", "handhabungstechnik",
+]
+
+# Matched as WHOLE WORDS. These are short or ambiguous and would produce false
+# positives as substrings: "ros" is inside "across"/"prozess"/"microsoft",
+# "amr" inside "amrein", "slam" inside "slammed". Mirrors the reasoning behind
+# SENIORITY_EXCLUDE_WORDS.
+ROBOTICS_TITLE_WORD_TERMS = [
+    "ros", "ros2", "slam", "agv", "amr", "uav", "ugv", "auv",
+    "rviz", "urdf", "plc robotics",
+]
+
+# Matched as whole words against the lowercased employer name. Distinctive
+# robotics houses only. The defense filter still runs first and independently,
+# so a defense arm of any of these stays excluded.
+ROBOTICS_COMPANIES = [
+    # industrial robot OEMs
+    "kuka", "abb robotics", "fanuc", "yaskawa", "kawasaki robotics",
+    "staubli", "stäubli", "universal robots", "franka emika", "franka robotics",
+    "denso robotics", "epson robots", "comau", "igus",
+    # mobile robotics / intralogistics / AGV-AMR
+    "magazino", "idealworks", "safelog", "ek robotics", "grenzebach",
+    "jungheinrich", "linde material handling", "kion", "dematic",
+    "ssi schäfer", "ssi schaefer", "swisslog", "agilox", "arculus",
+    # service, humanoid and research robotics
+    "neura robotics", "agile robots", "wandelbots", "robco", "sereact",
+    "kewazo", "cellumation", "roboception", "pilz", "schunk", "festo",
+    # drones / autonomy
+    "quantum systems", "wingcopter", "volocopter", "emqopter",
+    "third wave automation", "kinexon",
+    # research institutes with large robotics groups
+    "dfki", "fraunhofer ipa", "fraunhofer iml",
+]
+
+# ---------------------------------------------------------------------------
 # Cross-source duplicates
 #
 # The same posting is routinely listed on all four boards under four

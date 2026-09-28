@@ -24,6 +24,7 @@ from scrapers.common import (
     passes_junior_title_filter,
     passes_relevance_filter,
     rank_jobs,
+    robotics_score,
 )
 from scrapers import arbeitsagentur, indeed, stepstone, xing
 
@@ -137,11 +138,14 @@ def run():
     for source, jobs in jobs_by_source.items():
         cap = config.cap_for(source)
         if cap and len(jobs) > cap:
-            kept_priority = sum(1 for j in jobs[:cap] if automotive_score(j))
-            dropped_priority = sum(1 for j in jobs[cap:] if automotive_score(j))
+            def _domain(j):
+                """Automotive OR robotics -- the two preferred domains."""
+                return automotive_score(j) or robotics_score(j)
+            kept_priority = sum(1 for j in jobs[:cap] if _domain(j))
+            dropped_priority = sum(1 for j in jobs[cap:] if _domain(j))
             log.info(
                 "%s: capping %d jobs to %d this run (rest come next run); "
-                "%d automotive kept, %d deferred",
+                "%d automotive/robotics kept, %d deferred",
                 source, len(jobs), cap, kept_priority, dropped_priority,
             )
             jobs_by_source[source] = jobs[:cap]

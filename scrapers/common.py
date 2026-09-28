@@ -53,6 +53,18 @@ _AUTOMOTIVE_COMPANY_RE = [
     for term in config.AUTOMOTIVE_COMPANIES
 ]
 
+# Robotics, same construction. The TITLE list needs a word-boundary pass too
+# (not just the employer list) because tokens like "ros" and "slam" are real
+# words inside other words -- see config.ROBOTICS_TITLE_WORD_TERMS.
+_ROBOTICS_COMPANY_RE = [
+    re.compile(r"\b" + re.escape(term.strip()) + r"\b", re.IGNORECASE)
+    for term in config.ROBOTICS_COMPANIES
+]
+_ROBOTICS_TITLE_WORD_RE = [
+    re.compile(r"\b" + re.escape(term.strip()) + r"\b", re.IGNORECASE)
+    for term in config.ROBOTICS_TITLE_WORD_TERMS
+]
+
 
 # Punctuation/decoration that differs between boards for the same posting:
 # "(m/w/d)", "(all genders)", extra whitespace, etc.
@@ -390,6 +402,31 @@ def industry_phd_score(job):
     return score
 
 
+def robotics_score(job):
+    """How strongly a posting looks like robotics. 0 = not, higher = more.
+
+    Used only for RANKING (see rank_jobs) -- never to drop anything, exactly
+    like automotive_score. Scored equally to automotive on purpose: both are
+    core to this CV, so neither should outrank the other, and a posting that
+    is both (autonomous driving, typically) scores twice and sorts top.
+    """
+    if not config.PRIORITIZE_ROBOTICS:
+        return 0
+
+    score = 0
+    title = to_text(job.get("title")).lower()
+    if any(term in title for term in config.ROBOTICS_TITLE_TERMS) or any(
+        rx.search(title) for rx in _ROBOTICS_TITLE_WORD_RE
+    ):
+        score += config.ROBOTICS_TITLE_SCORE
+
+    company = to_text(job.get("company")).lower()
+    if company and any(rx.search(company) for rx in _ROBOTICS_COMPANY_RE):
+        score += config.ROBOTICS_COMPANY_SCORE
+
+    return score
+
+
 def junior_score(job):
     """How strongly a posting advertises itself as entry-level. 0 = not.
 
@@ -415,24 +452,30 @@ def junior_score(job):
 
 
 def priority_score(job):
-    """Total ranking weight: automotive + industry-PhD + entry-level weight.
+    """Total ranking weight: automotive + robotics + industry-PhD + entry-level.
 
-    All three are opt-in and all three only ever REORDER the digest -- see
+    All four are opt-in and all four only ever REORDER the digest -- see
     rank_jobs.
     """
-    return automotive_score(job) + industry_phd_score(job) + junior_score(job)
+    return (
+        automotive_score(job)
+        + robotics_score(job)
+        + industry_phd_score(job)
+        + junior_score(job)
+    )
 
 
 def rank_jobs(jobs):
     """Highest-priority first, stable within a score.
 
     Python's sort is stable, so postings with the same score keep the order
-    the scraper collected them in -- ranking only lifts automotive roles,
-    industry doctoral posts and entry-level roles above the rest, it does not
+    the scraper collected them in -- ranking only lifts automotive, robotics,
+    industry doctoral and entry-level roles above the rest, it does not
     otherwise reshuffle the digest, and it never drops anything.
     """
     if not (
         config.PRIORITIZE_AUTOMOTIVE
+        or config.PRIORITIZE_ROBOTICS
         or config.PRIORITIZE_INDUSTRY_PHD
         or config.PRIORITIZE_JUNIOR
     ):

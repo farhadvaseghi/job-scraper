@@ -16,7 +16,7 @@ import requests
 
 import config
 from scrapers.common import (
-    automotive_score, get_logger, industry_phd_score, to_text)
+    automotive_score, get_logger, industry_phd_score, robotics_score, to_text)
 
 log = get_logger("telegram")
 
@@ -65,14 +65,18 @@ def _job_lines(job):
     raw_age = to_text(job.get("raw_age_text"))
     age = f" ({_escape_html(_clip(raw_age, 40))})" if raw_age else ""
 
-    # Automotive roles are ranked to the top of each source; mark them so
+    # Prioritised roles are ranked to the top of each source; mark them so
     # that ordering is visible rather than implicit.
-    # 🏭 industry/industry-collaborative doctoral post, 🚗 automotive.
-    # Checked in that order so an automotive PhD reads as the PhD it is.
+    # 🏭 industry/industry-collaborative doctoral post, 🚗 automotive,
+    # 🤖 robotics. Checked in that order so an automotive PhD reads as the
+    # PhD it is; automotive stays ahead of robotics only to keep the existing
+    # digest looking the same for the overlap (autonomous driving).
     if industry_phd_score(job):
         bullet = "🏭"
     elif automotive_score(job):
         bullet = "🚗"
+    elif robotics_score(job):
+        bullet = "🤖"
     else:
         bullet = "•"
 
