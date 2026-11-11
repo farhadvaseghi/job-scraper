@@ -601,16 +601,16 @@ CITIES_BY_COUNTRY = {
         # engineering / automotive / research hubs just under the line
         "Darmstadt", "Paderborn", "Regensburg", "Ingolstadt", "Würzburg",
         "Wolfsburg", "Ulm", "Jena", "Göttingen", "Heilbronn", "Pforzheim",
-        # Bavaria, widened 2026-11-11 (owner wants more of it, and lives in
-        # Erlangen). The big-city rule alone had let only 7 Bavarian cities
-        # through; these are the rest that carry engineering work. Fuerth is
-        # the Erlangen/Nuernberg metro area, and Garching is TU Muenchen's
-        # engineering campus -- a research and robotics cluster, not a
-        # suburb, and it was being dropped as "not a big city".
-        "Erlangen", "Fürth", "Garching", "Garching bei München", "Freising",
-        "Erding", "Bamberg", "Bayreuth", "Landshut", "Aschaffenburg",
-        "Schweinfurt", "Kempten", "Rosenheim", "Passau", "Neu-Ulm",
-        "Coburg", "Ansbach", "Hof", "Amberg", "Straubing",
+        # owner's home city, and Fuerth -- 130k, a Grossstadt in its own
+        # right and the same metro area as Erlangen/Nuernberg.
+        #
+        # Eighteen smaller Bavarian towns were briefly added here when
+        # "Bayern" was read as the state; the owner meant Munich. They are
+        # all under 100k and so fail the big-city rule anyway, and have been
+        # removed. Garching is the one worth remembering -- 17k, but it is TU
+        # Muenchen's engineering campus and a robotics cluster. Add it by
+        # name if research postings matter more than the size rule.
+        "Erlangen", "Fürth",
     ],
     "Netherlands": [
         "Amsterdam", "Rotterdam", "Den Haag", "Utrecht", "Eindhoven",
@@ -1221,10 +1221,10 @@ AUTOMOTIVE_COMPANIES = [
 # ---------------------------------------------------------------------------
 # LOCATION preference (owner's request, 2026-11-11: "I want these more")
 #
-# Berlin, Hamburg, Stuttgart and Bavaria. Ranking only -- a posting
-# elsewhere in the allow-list is never dropped for being elsewhere, it just
-# sorts lower. The city FILTER (RESTRICT_TO_CITIES) is what decides who is
-# in at all; this decides who survives the per-source cap.
+# Berlin, Hamburg, Stuttgart and Munich. Ranking only -- a posting elsewhere
+# in the allow-list is never dropped for being elsewhere, it just sorts
+# lower. The city FILTER (RESTRICT_TO_CITIES) decides who is in at all;
+# this decides who survives the per-source cap.
 #
 # Scored 2, the same as a junior title and deliberately BELOW the domain
 # weights (automotive 3, robotics 3). So a robotics role in Dresden (3)
@@ -1233,24 +1233,24 @@ AUTOMOTIVE_COMPANIES = [
 # ordering is the point; raise LOCATION_SCORE above 3 only if location
 # should start winning against the field.
 #
-# "Bayern" is a state, not a city, so it is listed as its cities. Matching
-# reuses the same slug-token rule as the city filter, so "Berlin, BE, DE"
-# (Indeed's format) and "Garching bei Muenchen" both hit, while "Bernburg"
-# does not match Bern.
+# These are FOUR CITIES, not regions. "Bayern" was initially read as the
+# state and the whole of Bavaria was listed here; the owner meant Munich.
+# Erlangen and Nuernberg are deliberately NOT here -- they are in the
+# allow-list (so those postings are still sent) but carry no extra weight.
+#
+# Matching reuses the same slug-token rule as the city filter, so
+# "Berlin, BE, DE" (Indeed's format) and "Muenchen, BY" both hit, while
+# "Bernburg" does not match Bern.
 # ---------------------------------------------------------------------------
 PRIORITIZE_LOCATIONS = True
 
 LOCATION_SCORE = 2
 
 PREFERRED_LOCATIONS = [
-    # the three named cities
-    "Berlin", "Hamburg", "Stuttgart",
-    # Bavaria
-    "München", "Nürnberg", "Erlangen", "Fürth", "Augsburg", "Regensburg",
-    "Würzburg", "Ingolstadt", "Garching", "Freising", "Erding", "Bamberg",
-    "Bayreuth", "Landshut", "Aschaffenburg", "Schweinfurt", "Kempten",
-    "Rosenheim", "Passau", "Neu-Ulm", "Coburg", "Ansbach", "Hof", "Amberg",
-    "Straubing",
+    "Berlin",
+    "Hamburg",
+    "Stuttgart",
+    "München",
 ]
 
 PRIORITIZE_ROBOTICS = True

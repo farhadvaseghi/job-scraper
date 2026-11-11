@@ -1466,12 +1466,24 @@ class PreferredLocations(unittest.TestCase):
             self.assertEqual(location_score(self._j(city=c)),
                              config.LOCATION_SCORE, c)
 
-    def test_bavaria_scores(self):
-        for c in ("München", "Nürnberg", "Erlangen", "Fürth", "Augsburg",
-                  "Regensburg", "Ingolstadt", "Würzburg", "Bamberg",
-                  "Bayreuth", "Schweinfurt", "Landshut"):
+    def test_munich_scores(self):
+        """The fourth preferred city. "Bayern" was initially read as the
+        state and the whole of Bavaria was weighted; the owner meant
+        Munich."""
+        for c in ("München", "München, BY", "Muenchen"):
             self.assertEqual(location_score(self._j(city=c)),
                              config.LOCATION_SCORE, c)
+
+    def test_the_rest_of_bavaria_is_allowed_but_not_preferred(self):
+        """These stay in the allow-list -- their postings are still sent --
+        they simply carry no extra ranking weight."""
+        for c in ("Nürnberg", "Erlangen", "Fürth", "Augsburg", "Regensburg",
+                  "Ingolstadt", "Würzburg"):
+            self.assertEqual(location_score(self._j(city=c)), 0, c)
+            self.assertTrue(passes_city_filter(c), c)
+
+    def test_preference_is_four_cities_not_regions(self):
+        self.assertEqual(len(config.PREFERRED_LOCATIONS), 4)
 
     def test_elsewhere_scores_zero_but_is_not_dropped(self):
         for c in ("Dresden", "Mannheim", "Köln", "Bremen"):
@@ -1511,12 +1523,19 @@ class PreferredLocations(unittest.TestCase):
         there = priority_score(self._j("Robotics Engineer", "Kuka", "Dresden"))
         self.assertEqual(here - there, config.LOCATION_SCORE)
 
-    def test_newly_allowed_bavarian_cities_pass_the_filter(self):
-        """Widening the preference is useless if the filter still drops them
-        -- only 7 Bavarian cities were in the allow-list before."""
-        for c in ("Fürth", "Garching", "Bamberg", "Bayreuth", "Schweinfurt",
-                  "Freising", "Landshut", "Aschaffenburg"):
-            self.assertTrue(passes_city_filter(c), c)
+    def test_sub_grossstadt_towns_stay_out(self):
+        """Eighteen smaller Bavarian towns were briefly allow-listed when
+        "Bayern" was read as the state. All are under 100k and so fail the
+        owner's big-city rule; they were removed again. Garching is the one
+        worth remembering -- TU Muenchen's engineering campus, 17k people."""
+        for c in ("Garching", "Bamberg", "Bayreuth", "Schweinfurt",
+                  "Freising", "Landshut", "Aschaffenburg", "Straubing"):
+            self.assertFalse(passes_city_filter(c), c)
+
+    def test_fuerth_stays_allowed_on_its_own_merits(self):
+        """130k, a Grossstadt in its own right and the Erlangen/Nuernberg
+        metro area -- it passes the big-city rule independently."""
+        self.assertTrue(passes_city_filter("Fürth"))
 
     def test_ranking_still_drops_nothing(self):
         jobs = [self._j("Software Engineer", "A", "Dresden"),
