@@ -451,10 +451,35 @@ def junior_score(job):
     return 0
 
 
-def priority_score(job):
-    """Total ranking weight: automotive + robotics + industry-PhD + entry-level.
+def location_score(job):
+    """Ranking weight for the owner's preferred locations.
 
-    All four are opt-in and all four only ever REORDER the digest -- see
+    Berlin, Hamburg, Stuttgart and Bavaria (see config.PREFERRED_LOCATIONS).
+    Ranking only -- a posting elsewhere in the allow-list is never dropped,
+    it just sorts lower. passes_city_filter decides who is in at all; this
+    decides who survives the per-source cap.
+
+    Matching reuses the city filter's slug-token rule, so Indeed's
+    "Berlin, BE, DE" and "Garching bei Muenchen" both hit while "Bernburg"
+    does not match Bern.
+    """
+    if not config.PRIORITIZE_LOCATIONS:
+        return 0
+    city = to_text(job.get("city"))
+    if not city:
+        return 0
+    city_slug = _slug(city)
+    for target in config.PREFERRED_LOCATIONS:
+        if _slug_has_token(city_slug, _slug(target)):
+            return config.LOCATION_SCORE
+    return 0
+
+
+def priority_score(job):
+    """Total ranking weight: automotive + robotics + industry-PhD +
+    entry-level + preferred location.
+
+    All five are opt-in and all five only ever REORDER the digest -- see
     rank_jobs.
     """
     return (
@@ -462,6 +487,7 @@ def priority_score(job):
         + robotics_score(job)
         + industry_phd_score(job)
         + junior_score(job)
+        + location_score(job)
     )
 
 
@@ -470,14 +496,19 @@ def rank_jobs(jobs):
 
     Python's sort is stable, so postings with the same score keep the order
     the scraper collected them in -- ranking only lifts automotive, robotics,
-    industry doctoral and entry-level roles above the rest, it does not
-    otherwise reshuffle the digest, and it never drops anything.
+    industry doctoral, entry-level and preferred-location roles above the
+    rest, it does not otherwise reshuffle the digest, and it never drops
+    anything.
+
+    Every preference has to be listed in the guard below, or turning the
+    others off would silently stop ranking by the one left on.
     """
     if not (
         config.PRIORITIZE_AUTOMOTIVE
         or config.PRIORITIZE_ROBOTICS
         or config.PRIORITIZE_INDUSTRY_PHD
         or config.PRIORITIZE_JUNIOR
+        or config.PRIORITIZE_LOCATIONS
     ):
         return list(jobs)
     return sorted(jobs, key=priority_score, reverse=True)

@@ -30,6 +30,7 @@ from scrapers.common import (
     passes_company_filter,
     passes_permanent_filter,
     industry_phd_score,
+    location_score,
     is_research_title,
     junior_score,
     priority_score,
@@ -1446,6 +1447,98 @@ class IndustryPhdPriority(unittest.TestCase):
     def test_digest_still_marks_automotive_postings(self):
         lines = telegram_notify._job_lines(_job("ADAS Engineer", "Bosch"))
         self.assertIn("🚗", "".join(lines))
+
+
+class PreferredLocations(unittest.TestCase):
+    """Owner's request 2026-11-11: Berlin, Hamburg, Stuttgart and Bavaria
+    ranked higher. Ranking only -- nothing elsewhere is dropped."""
+
+    @staticmethod
+    def _j(title="Engineer", company="", city="Berlin"):
+        return {"title": title, "company": company, "city": city,
+                "source": "Xing", "url": "https://x/1"}
+
+    def test_switch_is_on(self):
+        self.assertTrue(config.PRIORITIZE_LOCATIONS)
+
+    def test_the_three_named_cities_score(self):
+        for c in ("Berlin", "Hamburg", "Stuttgart"):
+            self.assertEqual(location_score(self._j(city=c)),
+                             config.LOCATION_SCORE, c)
+
+    def test_bavaria_scores(self):
+        for c in ("München", "Nürnberg", "Erlangen", "Fürth", "Augsburg",
+                  "Regensburg", "Ingolstadt", "Würzburg", "Bamberg",
+                  "Bayreuth", "Schweinfurt", "Landshut"):
+            self.assertEqual(location_score(self._j(city=c)),
+                             config.LOCATION_SCORE, c)
+
+    def test_elsewhere_scores_zero_but_is_not_dropped(self):
+        for c in ("Dresden", "Mannheim", "Köln", "Bremen"):
+            self.assertEqual(location_score(self._j(city=c)), 0, c)
+            self.assertTrue(passes_city_filter(c), c)
+
+    def test_indeed_city_format_matches(self):
+        self.assertEqual(location_score(self._j(city="Berlin, BE, DE")),
+                         config.LOCATION_SCORE)
+
+    def test_suffixed_bavarian_city_matches(self):
+        """Garching is TU Muenchen's engineering campus and the boards write
+        it as "Garching bei Muenchen"."""
+        self.assertEqual(location_score(self._j(city="Garching bei München")),
+                         config.LOCATION_SCORE)
+
+    def test_does_not_match_mid_token(self):
+        """Same trap the city filter has: Bernburg is not Bern, and
+        Hamburg must not be matched by a stray substring rule."""
+        self.assertEqual(location_score(self._j(city="Bernburg")), 0)
+
+    def test_unknown_city_scores_zero(self):
+        self.assertEqual(location_score(self._j(city="")), 0)
+
+    def test_field_still_outranks_location(self):
+        """Deliberate: LOCATION_SCORE (2) is below the domain weights (3),
+        so robotics in Dresden beats a generic role in Berlin. Raising it
+        above 3 would invert that."""
+        robotics_elsewhere = priority_score(
+            self._j("Robotics Engineer", "SomeCo", "Dresden"))
+        generic_preferred = priority_score(
+            self._j("Software Engineer", "SomeCo", "Berlin"))
+        self.assertGreater(robotics_elsewhere, generic_preferred)
+
+    def test_location_stacks_with_the_other_preferences(self):
+        here = priority_score(self._j("Robotics Engineer", "Kuka", "München"))
+        there = priority_score(self._j("Robotics Engineer", "Kuka", "Dresden"))
+        self.assertEqual(here - there, config.LOCATION_SCORE)
+
+    def test_newly_allowed_bavarian_cities_pass_the_filter(self):
+        """Widening the preference is useless if the filter still drops them
+        -- only 7 Bavarian cities were in the allow-list before."""
+        for c in ("Fürth", "Garching", "Bamberg", "Bayreuth", "Schweinfurt",
+                  "Freising", "Landshut", "Aschaffenburg"):
+            self.assertTrue(passes_city_filter(c), c)
+
+    def test_ranking_still_drops_nothing(self):
+        jobs = [self._j("Software Engineer", "A", "Dresden"),
+                self._j("Software Engineer", "B", "Berlin")]
+        self.assertEqual(len(rank_jobs(jobs)), 2)
+        self.assertEqual(rank_jobs(jobs)[0]["city"], "Berlin")
+
+    def test_can_be_switched_off(self):
+        original = config.PRIORITIZE_LOCATIONS
+        try:
+            config.PRIORITIZE_LOCATIONS = False
+            self.assertEqual(location_score(self._j(city="Berlin")), 0)
+        finally:
+            config.PRIORITIZE_LOCATIONS = original
+
+    def test_rank_jobs_guard_lists_this_preference(self):
+        """If the guard forgets a preference, turning the others off stops
+        ranking by the one still on."""
+        import inspect
+        from scrapers import common
+        src = inspect.getsource(common.rank_jobs)
+        self.assertIn("PRIORITIZE_LOCATIONS", src)
 
 
 if __name__ == "__main__":
