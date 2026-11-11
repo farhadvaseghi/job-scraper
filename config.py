@@ -99,6 +99,36 @@ KEYWORD_GROUPS = {
         "Automatisierungstechnik",
         "SPS-Programmierer",
     ],
+    # Added 2026-11-11 after the resume gained the STRETTA Imaging role
+    # (3D electromagnetic simulation, high-voltage stability for X-ray/CT,
+    # CST Studio / COMSOL / ANSYS / SolidWorks / Creo). Nothing in the search
+    # reached that field before -- it is a whole domain, not a variant of an
+    # existing group.
+    "Simulation / CAE": [
+        "CAE Ingenieur",
+        "Berechnungsingenieur",
+        "Simulation Engineer",
+        "ANSYS",
+        "Hochspannungstechnik",
+        "Medizintechnik Ingenieur",
+    ],
+    # Control engineering is a resume skill category in its own right (MPC,
+    # state-space, PID, robot dynamics) and had no query of its own: the only
+    # keyword that touched it, "Process Control Engineer", was dropped on
+    # 2026-09-07 for returning IT and field-service roles. These are measured
+    # replacements, not a reinstatement of that term.
+    "Control Engineering": [
+        "Regelungstechnik",
+        "Control Engineer",
+    ],
+    # Hardware/electronics development -- PCB design, analog/digital
+    # electronics and board debugging are on the resume but were only ever
+    # reachable through the embedded queries.
+    "Hardware / Electronics": [
+        "Entwicklungsingenieur Elektronik",
+        "Hardwareentwickler",
+        "Signalverarbeitung",
+    ],
 }
 
 # Entry-level queries. These are not a role area, they are a LEVEL, so they
@@ -300,6 +330,18 @@ KEYWORDS_BY_SOURCE = {
         "Automatisierungsingenieur",
         "Automatisierungstechnik",
         "SPS-Programmierer",
+        # Resume-derived additions, 2026-11-11. Marginal contribution over
+        # the 42 keywords already here, measured live -- raw counts were far
+        # higher, but most of what they returned was already being found.
+        "Entwicklungsingenieur Elektronik",   # +40 postings nothing else found
+        "CAE Ingenieur",                      # +39
+        "Regelungstechnik",                   # +25
+        "Medizintechnik Ingenieur",           # +18
+        "Berechnungsingenieur",               # +16
+        "Hardwareentwickler",                 # +13
+        "ANSYS",                              # +10
+        "Control Engineer",                   # +9
+        "Hochspannungstechnik",               # +7
     ],
     # Zero raw results here, so not searched: "SLAM Engineer", "KI-Ingenieur",
     # "ADAS Engineer", "DSP Engineer", "FPGA-Ingenieur" -- Indeed's German
@@ -352,6 +394,19 @@ KEYWORDS_BY_SOURCE = {
         "Automation Engineer",
         "PLC Engineer",
         "Automatisierungsingenieur",
+        # Resume-derived additions, 2026-11-11, marginal over the existing 41.
+        # The boards split again: "Berechnungsingenieur" is worth +16 on
+        # Arbeitsagentur and returns ZERO here, while "Simulation Engineer" is
+        # the reverse (+8 here, +2 there). Measured, not copied across.
+        "CAE Ingenieur",                      # +15
+        "Control Engineer",                   # +14
+        "Hardwareentwickler",                 # +13
+        "Entwicklungsingenieur Elektronik",   # +11
+        "Medizintechnik Ingenieur",           # +9
+        "Simulation Engineer",                # +8
+        "Regelungstechnik",                   # +8
+        "Signalverarbeitung",                 # +6
+        "ANSYS",                              # +5
     ],
     # Xing understands every term -- nothing returned zero raw here -- so
     # this list is trimmed by MARGINAL value instead: every keyword below

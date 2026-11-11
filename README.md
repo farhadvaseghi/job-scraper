@@ -75,6 +75,7 @@ Four knobs in `config.py`, in rough order of impact:
 
 ## Adjusting things later
 
+- **Keeping keywords in step with the CV**: the lists mirror `resume_data.yaml`. When that file gains a role or skill area, the keywords must be re-measured -- nothing updates automatically. The 2026-11-11 pass added three groups (`Simulation / CAE`, `Control Engineering`, `Hardware / Electronics`) after a high-voltage/electromagnetic-simulation role appeared on the CV, taking Arbeitsagentur from 645 to 823 in-scope postings.
 - **Keywords**: `KEYWORDS_BY_SOURCE` in `config.py` holds one list per board, because the boards do not agree about which language wins. Arbeitsagentur is the German federal register, so English titles find almost nothing there ("Robotics Engineer" returns 2 in-scope postings, "Robotik" returns 11); Xing matches over an English-heavy tech corpus and does the reverse. Each list was measured live one keyword at a time -- a keyword is dropped from a board only when it returns *zero raw results* there. `config.keywords_for(source)` is what the scrapers call. `KEYWORDS` is the union and the fallback for any board without a measured list.
 - **Cities**: edit `CITIES_BY_COUNTRY` in `config.py`. `DACH_KEYWORDS` (Austria/Switzerland) and `INTERNATIONAL_KEYWORDS` (Netherlands) stay shared subsets -- those markets are picked by language, not by board, and are currently inactive.
 - **Countries**: `INDEED_COUNTRIES`, `STEPSTONE_SEARCHES` and `XING_LOCATIONS` in `config.py`.
