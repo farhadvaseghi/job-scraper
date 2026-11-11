@@ -473,6 +473,22 @@ KEYWORDS_BY_SOURCE = {
         "Automation Engineer",
         "PLC Engineer",
         "Automatisierungsingenieur",
+        # Resume-derived additions, 2026-11-11. Measured against Xing's own
+        # 640-posting baseline: ALL ELEVEN cleared the >=5 bar, nothing was
+        # rejected -- this board had the least coverage of the new domains.
+        # Note "Berechnungsingenieur" is +24 here, +16 on Arbeitsagentur and
+        # ZERO RAW on Indeed; the usual board split, measured each time.
+        "Simulation Engineer",                # +29 postings nothing else found
+        "Berechnungsingenieur",               # +24
+        "Hardwareentwickler",                 # +23
+        "CAE Ingenieur",                      # +17
+        "Entwicklungsingenieur Elektronik",   # +16
+        "ANSYS",                              # +9
+        "Control Engineer",                   # +8
+        "Hochspannungstechnik",               # +8
+        "Medizintechnik Ingenieur",           # +6
+        "Regelungstechnik",                   # +5
+        "Signalverarbeitung",                 # +5
     ],
 }
 
