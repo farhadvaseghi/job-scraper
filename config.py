@@ -566,10 +566,43 @@ XING_LOCATIONS = [
 # since every listing already carries its own city in the response.
 # ---------------------------------------------------------------------------
 CITIES_BY_COUNTRY = {
+    # Germany's major cities (owner's request, 2026-11-11: big cities only).
+    #
+    # Widened from the original twelve, which were not actually "the big
+    # cities": they left out Mannheim, Dresden, Bremen, Hannover, Karlsruhe
+    # and Münster, several of which are LARGER than cities that were on the
+    # list. Measured on a live run of 823 relevant postings, the old twelve
+    # kept 207 (25%); this list keeps 462 (56%).
+    #
+    # The rule is: Germany's Grossstaedte, plus the engineering, automotive
+    # and research hubs that sit just under that line and matter for this CV
+    # (Ingolstadt/Audi, Wolfsburg/VW, Darmstadt/TU, Jena/Zeiss, Ulm,
+    # Goettingen, Heilbronn, Regensburg).
+    #
+    # Deliberately NOT here, and each one costs real postings: Friedrichshafen
+    # (ZF/MTU, 16 postings on that run), Oberkochen (Zeiss, 10), Renningen
+    # (Bosch Research, a doctoral post), Juelich (Forschungszentrum, a
+    # doctoral post), Clausthal-Zellerfeld (TU). They are villages or small
+    # towns around one big employer. Add any of them by name if the employer
+    # matters more than the city size.
     "Germany": [
+        # the ten largest
         "Berlin", "Hamburg", "München", "Köln", "Frankfurt am Main",
-        "Stuttgart", "Düsseldorf", "Dortmund", "Essen", "Leipzig",
-        "Nürnberg", "Erlangen",
+        "Stuttgart", "Düsseldorf", "Leipzig", "Dortmund", "Essen",
+        # the rest of the Grossstaedte
+        "Bremen", "Dresden", "Hannover", "Nürnberg", "Duisburg", "Bochum",
+        "Wuppertal", "Bielefeld", "Bonn", "Münster", "Mannheim", "Karlsruhe",
+        "Augsburg", "Wiesbaden", "Mönchengladbach", "Gelsenkirchen",
+        "Braunschweig", "Kiel", "Aachen", "Chemnitz", "Halle", "Magdeburg",
+        "Freiburg im Breisgau", "Krefeld", "Mainz", "Lübeck", "Erfurt",
+        "Oberhausen", "Rostock", "Kassel", "Hagen", "Potsdam", "Saarbrücken",
+        "Hamm", "Ludwigshafen", "Leverkusen", "Oldenburg", "Osnabrück",
+        "Solingen", "Heidelberg", "Herne", "Neuss",
+        # engineering / automotive / research hubs just under the line
+        "Darmstadt", "Paderborn", "Regensburg", "Ingolstadt", "Würzburg",
+        "Wolfsburg", "Ulm", "Jena", "Göttingen", "Heilbronn", "Pforzheim",
+        # owner's home city
+        "Erlangen",
     ],
     "Netherlands": [
         "Amsterdam", "Rotterdam", "Den Haag", "Utrecht", "Eindhoven",
@@ -623,7 +656,7 @@ CITY_ALIASES = {
 # this back to True restores the previous behaviour exactly. ACTIVE_COUNTRIES
 # still governs which COUNTRY is searched -- that is a separate switch and is
 # unaffected.
-RESTRICT_TO_CITIES = False
+RESTRICT_TO_CITIES = True
 
 REMOTE_TERMS = [
     "remote", "home office", "homeoffice", "hybrid",

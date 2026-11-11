@@ -341,7 +341,11 @@ class CityFilter(unittest.TestCase):
         self.assertTrue(passes_city_filter(""), "unknown city must be kept")
 
     def test_non_target_cities_dropped(self):
-        for c in ("Kirchdorf an der Iller", "Ulm, Donau", "Bargteheide"):
+        # NB "Ulm" used to be here and is now a target city -- it was added
+        # 2026-11-11 as an engineering hub. These are villages and small
+        # towns, which is what the filter is for.
+        for c in ("Kirchdorf an der Iller", "Heimertingen", "Bargteheide",
+                  "Lindenberg im Allgäu"):
             self.assertFalse(passes_city_filter(c), c)
 
     def test_international_cities_dropped_while_germany_only(self):
@@ -1317,26 +1321,65 @@ def _job(title, company="", city="Berlin"):
             "source": "Xing", "url": "https://x/1"}
 
 
-class CityFilterOff(unittest.TestCase):
-    """Owner's request 2026-09-10: stop restricting by city."""
+class BigCitiesOnly(unittest.TestCase):
+    """Owner's request 2026-11-11: Germany only, big cities only.
 
-    def test_switch_is_off(self):
-        self.assertFalse(config.RESTRICT_TO_CITIES)
+    This REPLACES the 2026-09-10 "city filter off" policy. The filter is on
+    again, but against a much wider list than the original twelve -- those
+    were not actually the big cities.
+    """
 
-    def test_research_towns_are_kept(self):
-        """These are where German research institutes actually are, and the
-        old 12-city list dropped every one of them."""
-        for c in ("Aachen", "Darmstadt", "Karlsruhe", "Braunschweig",
-                  "Dresden", "Clausthal-Zellerfeld", "Wachtberg",
-                  "Tübingen", "Bremen"):
+    def test_switch_is_on(self):
+        self.assertTrue(config.RESTRICT_TO_CITIES)
+
+    def test_germany_only(self):
+        self.assertEqual(config.ACTIVE_COUNTRIES, ["Germany"])
+
+    def test_the_big_cities_the_old_twelve_wrongly_left_out(self):
+        """Each of these is larger than at least one city that WAS on the
+        original list, and each carried real postings on a live run --
+        Mannheim 34, Dresden 24, Bremen 23."""
+        for c in ("Mannheim", "Dresden", "Bremen", "Hannover", "Karlsruhe",
+                  "Münster", "Duisburg", "Bochum", "Bonn", "Braunschweig",
+                  "Aachen", "Kiel", "Rostock", "Kassel"):
             self.assertTrue(passes_city_filter(c), c)
 
-    def test_the_city_data_is_still_intact_for_re_enabling(self):
+    def test_engineering_hubs_under_the_size_line_are_included(self):
+        """Deliberate exceptions: these sit below the Grossstadt threshold
+        but are where this CV's industries actually are."""
+        for c in ("Ingolstadt", "Wolfsburg", "Darmstadt", "Jena", "Ulm",
+                  "Göttingen", "Heilbronn", "Regensburg"):
+            self.assertTrue(passes_city_filter(c), c)
+
+    def test_villages_and_one_employer_towns_are_dropped(self):
+        """The point of the request. Each of these costs real postings --
+        Friedrichshafen (ZF/MTU) and Oberkochen (Zeiss) especially -- and
+        they are excluded anyway because they are not big cities."""
+        for c in ("Lindenberg im Allgäu", "Heimertingen", "Oberkochen",
+                  "Friedrichshafen", "Clausthal-Zellerfeld", "Renningen",
+                  "Manching", "Wachtberg"):
+            self.assertFalse(passes_city_filter(c), c)
+
+    def test_home_city_is_included(self):
+        self.assertTrue(passes_city_filter("Erlangen"))
+
+    def test_remote_and_unknown_still_kept(self):
+        """Unchanged contract: a posting with no city, or a remote one, is
+        never dropped for location."""
+        self.assertTrue(passes_city_filter(""))
+        self.assertTrue(passes_city_filter("Remote"))
+        self.assertTrue(passes_city_filter("Deutschlandweit"))
+
+    def test_indeed_city_format_is_handled(self):
+        """Indeed writes "Berlin, BE, DE" where the others write "Berlin"."""
+        self.assertTrue(passes_city_filter("Berlin, BE, DE"))
+        self.assertFalse(passes_city_filter("Heimertingen, BY, DE"))
+
+    def test_can_be_switched_off_again(self):
         original = config.RESTRICT_TO_CITIES
         try:
-            config.RESTRICT_TO_CITIES = True
-            self.assertTrue(passes_city_filter("Berlin"))
-            self.assertFalse(passes_city_filter("Clausthal-Zellerfeld"))
+            config.RESTRICT_TO_CITIES = False
+            self.assertTrue(passes_city_filter("Clausthal-Zellerfeld"))
         finally:
             config.RESTRICT_TO_CITIES = original
 
