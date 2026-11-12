@@ -40,6 +40,14 @@ _TITLE_EXCLUDE_WORD_RE = [
     for term in config.TITLE_EXCLUDE_WORD_TERMS
 ]
 
+# Hard exclusions: employment TYPE and LEVEL. Checked BEFORE the override
+# list and never rescued by it -- see config.TITLE_HARD_EXCLUDE_TERMS for
+# why that distinction matters.
+_TITLE_HARD_EXCLUDE_WORD_RE = [
+    re.compile(r"\b" + re.escape(term.strip()) + r"\b", re.IGNORECASE)
+    for term in config.TITLE_HARD_EXCLUDE_WORD_TERMS
+]
+
 # Narrow false-positive guard: "Leiterplatte" (printed circuit board) starts
 # with "leiter" (manager/head) but is a hardware term, and PCB roles are
 # squarely in scope for an embedded/FPGA search. Checked before the seniority
@@ -63,6 +71,18 @@ _ROBOTICS_COMPANY_RE = [
 _ROBOTICS_TITLE_WORD_RE = [
     re.compile(r"\b" + re.escape(term.strip()) + r"\b", re.IGNORECASE)
     for term in config.ROBOTICS_TITLE_WORD_TERMS
+]
+
+# Automation, same construction as robotics -- the TITLE list needs a
+# word-boundary pass too, because "sps", "plc" and "hmi" are short enough
+# to appear inside unrelated words.
+_AUTOMATION_COMPANY_RE = [
+    re.compile(r"\b" + re.escape(term.strip()) + r"\b", re.IGNORECASE)
+    for term in config.AUTOMATION_COMPANIES
+]
+_AUTOMATION_TITLE_WORD_RE = [
+    re.compile(r"\b" + re.escape(term.strip()) + r"\b", re.IGNORECASE)
+    for term in config.AUTOMATION_TITLE_WORD_TERMS
 ]
 
 
@@ -270,6 +290,13 @@ def passes_relevance_filter(title):
     # posting matches nothing in RELEVANCE_TERMS any more, but a
     # "Data Engineer (Python)" would still match "python". An in-scope
     # override (e.g. "Data Engineer / Machine Learning Engineer") rescues it.
+    # Employment type and level first, and the override list cannot reach
+    # these. Subject matter never makes an internship a graduate job.
+    if any(term in lowered for term in config.TITLE_HARD_EXCLUDE_TERMS):
+        return False
+    if any(rx.search(lowered) for rx in _TITLE_HARD_EXCLUDE_WORD_RE):
+        return False
+
     excluded = (any(term in lowered for term in config.TITLE_EXCLUDE_TERMS)
                 or any(rx.search(lowered) for rx in _TITLE_EXCLUDE_WORD_RE))
     if excluded:
@@ -475,6 +502,57 @@ def location_score(job):
     return 0
 
 
+def automation_score(job):
+    """How strongly a posting looks like industrial automation. 0 = not.
+
+    Third domain weight alongside automotive and robotics, scored the same
+    because the owner ranks all three equally. Ranking only -- nothing is
+    dropped for not being automation.
+    """
+    if not config.PRIORITIZE_AUTOMATION:
+        return 0
+
+    score = 0
+    title = to_text(job.get("title")).lower()
+    # Strip the false friends first: "Test Automation Engineer" is test
+    # engineering, not industrial automation, and was scoring the full weight.
+    for phrase in config.AUTOMATION_FALSE_FRIENDS:
+        title = title.replace(phrase, " ")
+    if any(term in title for term in config.AUTOMATION_TITLE_TERMS) or any(
+        rx.search(title) for rx in _AUTOMATION_TITLE_WORD_RE
+    ):
+        score += config.AUTOMATION_TITLE_SCORE
+
+    company = to_text(job.get("company")).lower()
+    if company and any(rx.search(company) for rx in _AUTOMATION_COMPANY_RE):
+        score += config.AUTOMATION_COMPANY_SCORE
+
+    return score
+
+
+def generic_penalty(job):
+    """Negative weight for plain software / hardware roles. 0 or negative.
+
+    Owner wants fewer of these and more robotics/automation/automotive. They
+    are NOT dropped -- ranking only -- they just sort below everything else
+    so the per-source cap takes them last.
+
+    Applies ONLY when the posting shows no preferred-domain signal, so
+    "Robotics Software Engineer" and "Embedded Software Engineer Automotive"
+    keep their weight untouched; a bare "Software Engineer" is what sinks.
+    """
+    if not config.DEPRIORITIZE_GENERIC:
+        return 0
+    if automotive_score(job) or robotics_score(job) or automation_score(job):
+        return 0
+    title = to_text(job.get("title")).lower()
+    if any(term in title for term in config.GENERIC_EXEMPT_TERMS):
+        return 0
+    if any(term in title for term in config.GENERIC_TITLE_TERMS):
+        return config.GENERIC_PENALTY
+    return 0
+
+
 def priority_score(job):
     """Total ranking weight: automotive + robotics + industry-PhD +
     entry-level + preferred location.
@@ -485,9 +563,11 @@ def priority_score(job):
     return (
         automotive_score(job)
         + robotics_score(job)
+        + automation_score(job)
         + industry_phd_score(job)
         + junior_score(job)
         + location_score(job)
+        + generic_penalty(job)
     )
 
 
@@ -509,6 +589,8 @@ def rank_jobs(jobs):
         or config.PRIORITIZE_INDUSTRY_PHD
         or config.PRIORITIZE_JUNIOR
         or config.PRIORITIZE_LOCATIONS
+        or config.PRIORITIZE_AUTOMATION
+        or config.DEPRIORITIZE_GENERIC
     ):
         return list(jobs)
     return sorted(jobs, key=priority_score, reverse=True)

@@ -599,18 +599,20 @@ CITIES_BY_COUNTRY = {
         "Hamm", "Ludwigshafen", "Leverkusen", "Oldenburg", "Osnabrück",
         "Solingen", "Heidelberg", "Herne", "Neuss",
         # engineering / automotive / research hubs just under the line
-        "Darmstadt", "Paderborn", "Regensburg", "Ingolstadt", "Würzburg",
+        "Darmstadt", "Paderborn", "Ingolstadt",
         "Wolfsburg", "Ulm", "Jena", "Göttingen", "Heilbronn", "Pforzheim",
-        # owner's home city, and Fuerth -- 130k, a Grossstadt in its own
-        # right and the same metro area as Erlangen/Nuernberg.
+        # Nuernberg (above) and Erlangen, named explicitly by the owner.
         #
-        # Eighteen smaller Bavarian towns were briefly added here when
-        # "Bayern" was read as the state; the owner meant Munich. They are
-        # all under 100k and so fail the big-city rule anyway, and have been
-        # removed. Garching is the one worth remembering -- 17k, but it is TU
-        # Muenchen's engineering campus and a robotics cluster. Add it by
-        # name if research postings matter more than the size rule.
-        "Erlangen", "Fürth",
+        # Fuerth, Regensburg and Wuerzburg were EXCLUDED by name on
+        # 2026-11-11 even though all three clear the size rule -- the owner
+        # does not want them. Do not re-add them by applying the
+        # Grossstadt rule mechanically.
+        #
+        # Garching is also out (17k, fails the size rule) but is the one
+        # worth remembering: TU Muenchen's engineering campus and a robotics
+        # cluster. Add it by name if research postings ever matter more than
+        # the size rule.
+        "Erlangen",
     ],
     "Netherlands": [
         "Amsterdam", "Rotterdam", "Den Haag", "Utrecht", "Eindhoven",
@@ -1044,6 +1046,78 @@ TITLE_EXCLUDE_TERMS = [
 # not. Checked after TITLE_EXCLUDE_TERMS and it wins.
 # Keep this list narrow: "ai" is deliberately absent, or every
 # "Data Scientist - AI & Experimentation" would be rescued too.
+# ---------------------------------------------------------------------------
+# HARD exclusions -- employment TYPE and LEVEL, and TITLE_EXCLUDE_OVERRIDE_TERMS
+# can NEVER rescue these.
+#
+# This tier exists because the override list was doing real damage. It
+# rescues on SUBJECT ("machine learning", "computer vision", "embedded",
+# "robotic", "fpga", ...), which is right for a "Data Engineer / ML Engineer"
+# hybrid but catastrophic for employment type: "Werkstudent Computer Vision",
+# "Praktikum Machine Learning", "Praktikant Robotics" and "Ausbildung
+# Mechatroniker Embedded" were ALL being delivered, because the topic match
+# overrode the vocational block. A topic can never make an apprenticeship a
+# graduate job.
+#
+# Internships and post-docs are here at the owner's request (2026-11-11).
+# Post-docs require a finished doctorate, which is not the owner's situation.
+# ---------------------------------------------------------------------------
+TITLE_HARD_EXCLUDE_TERMS = [
+    # student / apprentice / non-graduate
+    "ausbildung",
+    "auszubildende",
+    "azubi",
+    "werkstudent",
+    "praktikum",
+    "praktikant",
+    "praxissemester",
+    "pflichtpraktikum",
+    "schülerpraktikum",
+    "studentische hilfskraft",
+    "duales studium",
+    "dualer student",
+    "internship",
+    # career-changer / retraining
+    "quereinstieg",
+    "quereinsteiger",
+    "umschulung",
+    # post-doctoral -- needs a completed PhD
+    "postdoc",
+    "post-doc",
+    "post doc",
+    "postdoktorand",
+    "habilitation",
+    # skilled trades, which share stems with the engineering titles
+    "mechatroniker",
+    "mechaniker",
+    "elektroniker",
+    "testfahrer",
+    "fahrzeugtester",
+    "kraftfahrer",
+    "berufskraftfahrer",
+    "monteur",
+    # shop-floor trades surfaced by the automation queries -- a "Loeter -
+    # Automatisierungstechnik" (solderer) was ranking at 5
+    "löter",
+    "loeter",
+    "schweißer",
+    "schweisser",
+    "schlosser",
+    "lackierer",
+    "zerspanungs",
+    "industriemechanik",
+    "anlagenmechanik",
+]
+
+# Whole words, because the substring would misfire badly: "intern" lives
+# inside "international", "internal" and "Internet of Things", and "hiwi"
+# inside surnames.
+TITLE_HARD_EXCLUDE_WORD_TERMS = [
+    "intern",
+    "interns",
+    "hiwi",
+]
+
 # Matched as WHOLE WORDS, for stems where a substring would misfire:
 # "sales" is inside "Salesforce" and "sap" is inside "sapient"/"Sapper".
 TITLE_EXCLUDE_WORD_TERMS = [
@@ -1251,6 +1325,112 @@ PREFERRED_LOCATIONS = [
     "Hamburg",
     "Stuttgart",
     "München",
+]
+
+# ---------------------------------------------------------------------------
+# AUTOMATION preference (owner's request, 2026-11-11: more robotics,
+# automation and automotive; fewer plain software and hardware roles)
+#
+# Third domain weight, scored the SAME as automotive and robotics (title 3,
+# employer 1) because the owner ranks all three equally. Automation had no
+# weight at all before this, despite being a resume area (TIA Portal, SIMATIC
+# S7, WinCC, PCS7, SCADA, Factory I/O, the AS/RS and bottling-line projects).
+#
+# Ranking only. Nothing is dropped for not being automation.
+# ---------------------------------------------------------------------------
+PRIORITIZE_AUTOMATION = True
+
+AUTOMATION_TITLE_SCORE = 3
+AUTOMATION_COMPANY_SCORE = 1
+
+AUTOMATION_TITLE_TERMS = [
+    "automatisierung", "automatisierungstechnik", "automation",
+    "sps-programmier", "sps programmier", "plc programmer",
+    "tia portal", "simatic", "step 7", "codesys", "beckhoff twincat",
+    "scada", "wincc", "pcs7", "pcs 7", "leittechnik", "prozessleittechnik",
+    "profinet", "profibus", "ethercat", "fieldbus",
+    "feldbus", "steuerungstechnik", "steuerungsentwickl",
+    "antriebstechnik", "drive technology", "servo",
+    "inbetriebnahme", "commissioning", "retrofit",
+    "fertigungsautomatisierung", "produktionsautomatisierung",
+    "industrie 4.0", "industry 4.0", "smart factory",
+]
+
+# Whole words -- short and inside unrelated words: "sps" is in "gsps",
+# "plc" in "plcs", "hmi" in surnames.
+AUTOMATION_TITLE_WORD_TERMS = [
+    # "mes" was a substring and matched "VerMESsungsingenieur" -- a surveying
+    # engineer was scoring the full industrial-automation weight. "ipc" is
+    # equally short. Both are whole-word now.
+    "sps", "plc", "hmi", "dcs", "iiot", "mes", "ipc",
+]
+
+# Phrases that contain an automation word but are NOT industrial
+# automation. Stripped from the title before the automation terms are
+# matched, the same way _SENIORITY_ALLOW_RE protects "Leiterplatte".
+# "Test Automation Engineer" was scoring the full industrial weight.
+AUTOMATION_FALSE_FRIENDS = [
+    "test automation", "testautomation", "testautomatisierung",
+    "test-automatisierung", "testautomatisier",
+    "marketing automation", "sales automation", "office automation",
+    "robotic process automation", "rpa",
+]
+
+AUTOMATION_COMPANIES = [
+    "siemens", "festo", "beckhoff", "phoenix contact", "pilz", "sew",
+    "lenze", "bosch rexroth", "keba", "b&r industrial", "wago", "balluff",
+    "sick ag", "turck", "pepperl", "weidmüller", "weidmueller", "harting",
+    "ifm electronic", "schneider electric", "rockwell automation",
+    "omron", "mitsubishi electric", "lapp", "murrelektronik", "kuka",
+]
+
+# ---------------------------------------------------------------------------
+# DEMOTION for plain software / hardware roles (same request)
+#
+# "Fewer than before" for the software and hardware side. These are NOT
+# dropped -- the owner has a software background and some of these are good
+# roles -- they are pushed BELOW everything else so the per-source cap takes
+# them last.
+#
+# Only applies when the posting shows NO automotive, robotics or automation
+# signal. "Robotics Software Engineer" and "Embedded Software Engineer
+# Automotive" keep their domain weight and are untouched; a bare "Software
+# Engineer" or "Hardwareentwickler" is what gets demoted.
+#
+# Deliberately NOT demoted: embedded, FPGA, test/QA, computer vision and ML.
+# Those are core resume areas the owner did not ask to reduce.
+# ---------------------------------------------------------------------------
+DEPRIORITIZE_GENERIC = True
+
+GENERIC_PENALTY = -3
+
+# A title matching ANY of these never takes the penalty, even if it also
+# matches GENERIC_TITLE_TERMS. These are core resume areas the owner did not
+# ask to reduce -- "Embedded Software Engineer" contains "software engineer"
+# and would otherwise have been demoted, which was the opposite of intended.
+GENERIC_EXEMPT_TERMS = [
+    "embedded", "firmware", "fpga", "rtl", "vhdl", "verilog", "asic",
+    "computer vision", "bildverarbeitung", "machine learning",
+    "maschinelles lernen", "deep learning", "ki-", "robot", "slam",
+    "autonom", "sensor", "signalverarbeit", "signal processing",
+    "test", "qa", "validier", "verifikat", "simulation", "cae",
+    "berechnung", "regelungstechnik", "mechatronik", "medizintechnik",
+    "hochspannung", "adas", "fahrerassistenz",
+]
+
+GENERIC_TITLE_TERMS = [
+    # plain software
+    "softwareentwickler", "software engineer", "software developer",
+    "softwareingenieur", "programmierer", "developer", "entwickler",
+    "backend", "frontend", "web", "app-entwickl", "mobile",
+    "cloud", "devops", "sre", "platform engineer", "it-", "it ",
+    "datenbank", "database", "sap", "erp", "crm", "java", "javascript",
+    ".net", "php", "angular", "react", "node",
+    # plain hardware / electronics development
+    "hardwareentwickl", "hardware engineer", "hardware developer",
+    "elektronikentwickl", "elektronikingenieur",
+    "entwicklungsingenieur elektronik", "leiterplatte", "pcb",
+    "schaltungsentwickl", "analogentwickl", "layouter",
 ]
 
 PRIORITIZE_ROBOTICS = True

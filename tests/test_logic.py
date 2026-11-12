@@ -30,6 +30,8 @@ from scrapers.common import (
     passes_company_filter,
     passes_permanent_filter,
     industry_phd_score,
+    automation_score,
+    generic_penalty,
     location_score,
     is_research_title,
     junior_score,
@@ -487,9 +489,12 @@ class AutomotivePriority(unittest.TestCase):
         ranked = rank_jobs(jobs)
         self.assertEqual(ranked[0]["title"], "ADAS Engineer")
         self.assertEqual(ranked[1]["title"], "Automotive Software Engineer")
-        # non-automotive keep their original relative order
+        # "QA Engineer" is exempt from the generic penalty (test/QA is a core
+        # resume area), so it now sorts above the two plain developer roles,
+        # which take GENERIC_PENALTY. Those two are equally scored and keep
+        # their original relative order -- the stability guarantee.
         self.assertEqual([j["title"] for j in ranked[2:]],
-                         ["Python Developer", "QA Engineer",
+                         ["QA Engineer", "Python Developer",
                           "Full-Stack Developer"])
 
     def test_ranking_never_drops_anything(self):
@@ -1348,8 +1353,11 @@ class BigCitiesOnly(unittest.TestCase):
     def test_engineering_hubs_under_the_size_line_are_included(self):
         """Deliberate exceptions: these sit below the Grossstadt threshold
         but are where this CV's industries actually are."""
+        # NB Regensburg and Wuerzburg were here and are now excluded BY NAME
+        # (2026-11-11) despite clearing the size rule -- see
+        # CityExclusionsByName.
         for c in ("Ingolstadt", "Wolfsburg", "Darmstadt", "Jena", "Ulm",
-                  "Göttingen", "Heilbronn", "Regensburg"):
+                  "Göttingen", "Heilbronn", "Paderborn"):
             self.assertTrue(passes_city_filter(c), c)
 
     def test_villages_and_one_employer_towns_are_dropped(self):
@@ -1477,8 +1485,7 @@ class PreferredLocations(unittest.TestCase):
     def test_the_rest_of_bavaria_is_allowed_but_not_preferred(self):
         """These stay in the allow-list -- their postings are still sent --
         they simply carry no extra ranking weight."""
-        for c in ("Nürnberg", "Erlangen", "Fürth", "Augsburg", "Regensburg",
-                  "Ingolstadt", "Würzburg"):
+        for c in ("Nürnberg", "Erlangen", "Augsburg", "Ingolstadt"):
             self.assertEqual(location_score(self._j(city=c)), 0, c)
             self.assertTrue(passes_city_filter(c), c)
 
@@ -1532,10 +1539,10 @@ class PreferredLocations(unittest.TestCase):
                   "Freising", "Landshut", "Aschaffenburg", "Straubing"):
             self.assertFalse(passes_city_filter(c), c)
 
-    def test_fuerth_stays_allowed_on_its_own_merits(self):
-        """130k, a Grossstadt in its own right and the Erlangen/Nuernberg
-        metro area -- it passes the big-city rule independently."""
-        self.assertTrue(passes_city_filter("Fürth"))
+    def test_fuerth_is_excluded_by_name(self):
+        """Fuerth clears the size rule (130k) and was briefly allowed on
+        that basis; the owner excluded it by name on 2026-11-11."""
+        self.assertFalse(passes_city_filter("Fürth"))
 
     def test_ranking_still_drops_nothing(self):
         jobs = [self._j("Software Engineer", "A", "Dresden"),
@@ -1558,6 +1565,228 @@ class PreferredLocations(unittest.TestCase):
         from scrapers import common
         src = inspect.getsource(common.rank_jobs)
         self.assertIn("PRIORITIZE_LOCATIONS", src)
+
+
+class HardExclusions(unittest.TestCase):
+    """Employment TYPE and LEVEL, which no subject match may rescue.
+
+    Owner's request 2026-11-11: no internships, no post-docs. Building that
+    exposed a pre-existing leak -- TITLE_EXCLUDE_OVERRIDE_TERMS rescues on
+    subject, so "Werkstudent Computer Vision", "Praktikum Machine Learning",
+    "Praktikant Robotics" and "Ausbildung Mechatroniker Embedded" were all
+    being delivered. A topic can never make an apprenticeship a graduate job.
+    """
+
+    def test_internships_dropped(self):
+        for t in ("Internship Embedded Software (m/w/d)",
+                  "Intern Robotics (f/m/d)",
+                  "Software Engineering Intern",
+                  "Praktikum Software Engineering",
+                  "Praktikant Robotics",
+                  "Pflichtpraktikum Elektrotechnik"):
+            self.assertFalse(passes_relevance_filter(t), t)
+
+    def test_postdocs_dropped(self):
+        """A post-doc needs a finished doctorate."""
+        for t in ("Postdoc Robotics (m/w/d)",
+                  "Post-Doc Position Machine Learning",
+                  "Post Doc Embedded Systems",
+                  "Postdoktorand Elektrotechnik",
+                  "Habilitation Informatik"):
+            self.assertFalse(passes_relevance_filter(t), t)
+
+    def test_the_override_list_can_no_longer_rescue_these(self):
+        """The whole point of the hard tier. Every one of these was KEPT
+        before, because the subject matched TITLE_EXCLUDE_OVERRIDE_TERMS."""
+        for t in ("Werkstudent Computer Vision",
+                  "Praktikum Machine Learning",
+                  "Werkstudent Embedded Systems",
+                  "Werkstudent FPGA Design",
+                  "Praktikum Firmware Entwicklung",
+                  "Ausbildung Mechatroniker Embedded",
+                  "Praktikant Deep Learning"):
+            self.assertFalse(passes_relevance_filter(t), t)
+
+    def test_intern_is_word_matched_not_substring(self):
+        """"intern" sits inside "international", "internal" and "Internet"."""
+        for t in ("Internet of Things Engineer",
+                  "Internal Tools Engineer (m/w/d)",
+                  "International Software Engineer"):
+            self.assertTrue(passes_relevance_filter(t), t)
+
+    def test_doctoral_and_research_posts_still_pass(self):
+        """Excluding post-docs must not take PhD positions with it -- those
+        are explicitly wanted."""
+        for t in ("Doktorand Robotik",
+                  "PhD Machine Learning",
+                  "Promotionsstelle Computer Vision",
+                  "Wissenschaftlicher Mitarbeiter Informatik"):
+            self.assertTrue(passes_relevance_filter(t), t)
+
+    def test_engineering_titles_sharing_trade_stems_still_pass(self):
+        """The documented invariant: moving the trade titles into the hard
+        tier must not take the real engineering ones."""
+        for t in ("Mechatronik-Ingenieur (m/w/d)",
+                  "Elektronikingenieur Automatisierung",
+                  "Entwicklungsingenieur Elektronik"):
+            self.assertTrue(passes_relevance_filter(t), t)
+
+
+class CityExclusionsByName(unittest.TestCase):
+    """Owner excluded three cities by name on 2026-11-11, even though all
+    three clear the size rule. Do not re-add them by applying the
+    Grossstadt rule mechanically."""
+
+    def test_the_three_named_cities_are_out(self):
+        for c in ("Fürth", "Regensburg", "Würzburg"):
+            self.assertFalse(passes_city_filter(c), c)
+
+    def test_nuernberg_and_erlangen_stay(self):
+        """Named explicitly by the owner."""
+        for c in ("Nürnberg", "Erlangen"):
+            self.assertTrue(passes_city_filter(c), c)
+
+    def test_the_industrial_cities_stay(self):
+        for c in ("München", "Ingolstadt", "Augsburg", "Wolfsburg",
+                  "Stuttgart", "Mannheim", "Darmstadt"):
+            self.assertTrue(passes_city_filter(c), c)
+
+
+class AutomationPriority(unittest.TestCase):
+    """Third domain weight, added 2026-11-11: the owner wants more robotics,
+    automation and automotive. Automation had no weight at all before."""
+
+    @staticmethod
+    def _j(title, company="", city="Berlin"):
+        return {"title": title, "company": company, "city": city,
+                "source": "Xing", "url": "https://x/1"}
+
+    def test_switch_is_on_and_scored_like_the_other_domains(self):
+        self.assertTrue(config.PRIORITIZE_AUTOMATION)
+        self.assertEqual(config.AUTOMATION_TITLE_SCORE,
+                         config.ROBOTICS_TITLE_SCORE)
+        self.assertEqual(config.AUTOMATION_TITLE_SCORE,
+                         config.AUTOMOTIVE_TITLE_SCORE)
+
+    def test_automation_titles_score(self):
+        for t in ("SPS-Programmierer (m/w/d) Automatisierung",
+                  "Automatisierungsingenieur TIA Portal",
+                  "Inbetriebnahmeingenieur (m/w/d)",
+                  "PLC Programmer (m/f/d)",
+                  "SCADA Engineer", "Prozessleittechnik Ingenieur",
+                  "Commissioning Engineer Industrie 4.0"):
+            self.assertGreater(automation_score(self._j(t)), 0, t)
+
+    def test_automation_employers_score(self):
+        self.assertGreater(automation_score(self._j("Ingenieur", "Festo SE")),
+                           0)
+
+    def test_test_automation_is_not_industrial_automation(self):
+        """"Test Automation Engineer" was taking the full industrial weight.
+        The false-friend phrases are stripped before matching."""
+        for t in ("Test Automation Engineer", "Testautomatisierung (m/w/d)",
+                  "Software Test Automation Engineer",
+                  "Robotic Process Automation Developer"):
+            self.assertEqual(automation_score(self._j(t)), 0, t)
+
+    def test_short_tokens_are_word_matched(self):
+        """"sps", "plc", "hmi", "mes" and "ipc" are short enough to hit
+        inside other words. "mes" was a substring and matched
+        "VerMESsungsingenieur" -- a surveying engineer was scoring the full
+        industrial weight on a live run."""
+        for t in ("Gspsoft Developer",
+                  "Junior Vermessungsingenieur:in als Planungsingenieur",
+                  "Messtechnik Ingenieur"):
+            self.assertEqual(automation_score(self._j(t)), 0, t)
+
+    def test_the_real_short_tokens_still_match(self):
+        for t in ("MES Engineer (m/w/d)", "IPC Software Engineer",
+                  "SPS-Programmierer", "PLC Engineer", "HMI Entwickler"):
+            self.assertGreater(automation_score(self._j(t)), 0, t)
+
+    def test_shopfloor_trades_surfaced_by_automation_queries_are_dropped(self):
+        """The automation terms reach the shop floor as well as engineering.
+        A "Loeter - Automatisierungstechnik" (solderer) was ranking at 5."""
+        for t in ("Löter - Automatisierungstechnik - Vollzeit (m/w/d)",
+                  "Schweißer (m/w/d)", "Industriemechaniker Automatisierung",
+                  "Zerspanungsmechaniker", "Anlagenmechaniker SHK"):
+            self.assertFalse(passes_relevance_filter(t), t)
+
+    def test_automation_engineering_titles_survive_those_exclusions(self):
+        for t in ("Automatisierungsingenieur (m/w/d)",
+                  "SPS-Programmierer (m/w/d)",
+                  "Inbetriebnahmeingenieur Automatisierungstechnik"):
+            self.assertTrue(passes_relevance_filter(t), t)
+
+    def test_can_be_switched_off(self):
+        original = config.PRIORITIZE_AUTOMATION
+        try:
+            config.PRIORITIZE_AUTOMATION = False
+            self.assertEqual(automation_score(self._j("SPS-Programmierer")), 0)
+        finally:
+            config.PRIORITIZE_AUTOMATION = original
+
+
+class GenericDemotion(unittest.TestCase):
+    """Owner wants fewer plain software/hardware roles. They are demoted,
+    never dropped."""
+
+    @staticmethod
+    def _j(title, company="", city="Berlin"):
+        return {"title": title, "company": company, "city": city,
+                "source": "Xing", "url": "https://x/1"}
+
+    def test_plain_software_and_hardware_are_demoted(self):
+        for t in ("Software Engineer (m/w/d)", "Softwareentwickler Java",
+                  "Backend Developer", "Hardwareentwickler (m/w/d)",
+                  "Elektronikentwickler", "Cloud DevOps Engineer"):
+            self.assertLess(generic_penalty(self._j(t)), 0, t)
+
+    def test_core_resume_areas_are_exempt(self):
+        """"Embedded Software Engineer" contains "software engineer" and was
+        being demoted, which was the opposite of intended."""
+        for t in ("Embedded Software Engineer", "Firmware Engineer",
+                  "FPGA Engineer", "Computer Vision Engineer",
+                  "Machine Learning Engineer", "Test Automation Engineer",
+                  "CAE Ingenieur", "Simulation Engineer",
+                  "Regelungstechnik Ingenieur"):
+            self.assertEqual(generic_penalty(self._j(t)), 0, t)
+
+    def test_a_domain_signal_cancels_the_penalty(self):
+        for t in ("Robotics Software Engineer",
+                  "Automotive Software Engineer",
+                  "Software Engineer Automatisierung"):
+            self.assertEqual(generic_penalty(self._j(t)), 0, t)
+
+    def test_demoted_roles_are_still_delivered_just_last(self):
+        """Ranking only -- nothing is dropped."""
+        jobs = [self._j("Software Engineer"), self._j("Robotics Engineer")]
+        ranked = rank_jobs(jobs)
+        self.assertEqual(len(ranked), 2)
+        self.assertEqual(ranked[0]["title"], "Robotics Engineer")
+        self.assertEqual(ranked[1]["title"], "Software Engineer")
+
+    def test_the_three_wanted_domains_outrank_everything_generic(self):
+        generic = priority_score(self._j("Software Engineer", "SomeCo"))
+        for t, c in (("Robotics Engineer", "Kuka"),
+                     ("ADAS Engineer", "BMW AG"),
+                     ("SPS-Programmierer Automatisierung", "Festo SE")):
+            self.assertGreater(priority_score(self._j(t, c)), generic, t)
+
+    def test_can_be_switched_off(self):
+        original = config.DEPRIORITIZE_GENERIC
+        try:
+            config.DEPRIORITIZE_GENERIC = False
+            self.assertEqual(generic_penalty(self._j("Software Engineer")), 0)
+        finally:
+            config.DEPRIORITIZE_GENERIC = original
+
+    def test_rank_jobs_guard_lists_both_new_switches(self):
+        import inspect
+        from scrapers import common
+        src = inspect.getsource(common.rank_jobs)
+        self.assertIn("PRIORITIZE_AUTOMATION", src)
+        self.assertIn("DEPRIORITIZE_GENERIC", src)
 
 
 if __name__ == "__main__":
